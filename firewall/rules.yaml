@@ -1,0 +1,12 @@
+# firewall/rules.yaml: limits and allowlist (Person 2 owns)
+# Precedence: any deny wins, otherwise any ask, otherwise allow. Default is deny.
+auto_limit: "50"        # TUSD: at or below this, an allowlisted transfer is auto-approved
+max_tx: "500"           # TUSD: above this, always deny (LIM-01)
+daily_cap: "1000"       # TUSD per rolling 24h (LIM-03)
+velocity:
+  max_actions: 5
+  window_seconds: 600   # VEL-01
+trusted_origins:
+  - user_chat           # everything else is untrusted (PRV-01)
+chain_id: null          # set after the first deploy; read from the node, never guess
+allowlist: []           # add checksummed addresses here, e.g. a demo "Alice" and "Bob"

@@ -1,0 +1,28 @@
+# secrets: NEVER commit
+.env
+*.key
+*.pem
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# foundry / node
+out/
+cache/
+broadcast/
+node_modules/
+dist/
+
+# editor / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# local logs (the evidence/ folder is committed on purpose)
+*.log
+logs/
