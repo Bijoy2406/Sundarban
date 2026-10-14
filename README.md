@@ -19,7 +19,7 @@ against Sentinel Wallet (blocked, with the reason).
 | Part | State |
 |---|---|
 | Shared types + contract test | ✅ done |
-| TestUSD token (ERC-20) + deploy script | ✅ done, tested on local Anvil |
+| TestUSD token (ERC-20) + deploy script | ✅ done, tested on local Anvil, **deployed on Sepolia** (`evidence/deployments.json`) |
 | `wallet_engine`: `plan`, `balances`, `approvals` | ✅ real (read-only, sends nothing) |
 | `wallet_engine`: `simulate`, `execute` | 🟡 **stub** (Person 1) |
 | `firewall`: rules, tokens, audit log | 🟡 **stub, always "allow"** (Person 2) |
@@ -28,6 +28,7 @@ against Sentinel Wallet (blocked, with the reason).
 | FastAPI backend + React frontend | ✅ starter: status, wallet, preview, LLM test |
 
 Track the remaining work in **GitHub Issues** (labels `person1`, `person2`, `person3`).
+**Start with the issue called "Build order"**: it lists what to do next, in order.
 
 ---
 
@@ -128,7 +129,8 @@ cp .env.example .env
 |---|---|---|
 | `RPC_URL_LOCAL` | keep `http://127.0.0.1:8545` | everything local |
 | `ACTIVE_NETWORK` | `local` (switch to `sepolia` only for evidence runs) | everything |
-| `WALLET_PRIVATE_KEY` | Anvil **Account #0** private key (printed when you run `anvil`) | wallet |
+| `WALLET_PRIVATE_KEY` | Anvil **Account #0** private key (printed when you run `anvil`) | local wallet |
+| `SEPOLIA_PRIVATE_KEY` | a fresh throwaway key from `cast wallet new`; used only when `ACTIVE_NETWORK=sepolia` | Sepolia evidence run |
 | `ATTACKER_PRIVATE_KEY` | Anvil **Account #1** private key | attack demo |
 | `APPROVAL_SECRET` | output of `python3 -c "import secrets; print(secrets.token_hex(32))"` | firewall tokens |
 | `TOKEN_ADDRESS` | printed by the deploy script (step 3); locally it is `0x5FbDB2315678afecb367f032d93F642f64180aa3` | wallet |
@@ -207,7 +209,7 @@ changed the shared data types or function signatures.
 
 ## 5. Team workflow
 
-- Branches: `main` (always working) · `person1-engine` · `person2-firewall` · `person3-agent`
+- Branches: `main` (always working, default) · `person1-engine` · `person2-firewall` · `person3-agent`
 - Every session: `git pull origin main --rebase`, work, test, commit small, push your branch.
 - Share work through a **Pull Request into `main`**; one teammate looks at it before merging.
 - Pick up work from **GitHub Issues**: filter by your label (`person1` / `person2` / `person3`).

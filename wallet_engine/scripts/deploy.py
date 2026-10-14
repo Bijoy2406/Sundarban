@@ -20,10 +20,11 @@ load_dotenv(ROOT / ".env")
 
 network = os.getenv("ACTIVE_NETWORK", "local")
 rpc_var = "RPC_URL_LOCAL" if network == "local" else "RPC_URL_SEPOLIA"
+key_var = "WALLET_PRIVATE_KEY" if network == "local" else "SEPOLIA_PRIVATE_KEY"
 rpc = os.getenv(rpc_var)
-key = os.getenv("WALLET_PRIVATE_KEY")
+key = os.getenv(key_var)
 if not rpc or not key:
-    sys.exit(f"Set {rpc_var} and WALLET_PRIVATE_KEY in .env first.")
+    sys.exit(f"Set {rpc_var} and {key_var} in .env first.")
 
 w3 = Web3(Web3.HTTPProvider(rpc))
 if not w3.is_connected():

@@ -29,10 +29,15 @@ def get_web3() -> Web3:
     return Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 10}))
 
 
+def key_var() -> str:
+    """Which .env variable holds the signing key for the active network."""
+    return "WALLET_PRIVATE_KEY" if network() == "local" else "SEPOLIA_PRIVATE_KEY"
+
+
 def wallet_address() -> str:
-    key = os.getenv("WALLET_PRIVATE_KEY")
+    key = os.getenv(key_var())
     if not key:
-        raise RuntimeError("WALLET_PRIVATE_KEY is not set in .env")
+        raise RuntimeError(f"{key_var()} is not set in .env")
     return Web3().eth.account.from_key(key).address
 
 

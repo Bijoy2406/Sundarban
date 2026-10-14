@@ -6,5 +6,13 @@
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "tx_hash": "0x301f7aa05d7ac668914f2dcca70e3a4d3c02fc871ed92195c87fe5bf155c10c9",
     "block": 1
+  },
+  "sepolia": {
+    "network": "sepolia",
+    "chain_id": 11155111,
+    "token": "0x81EBDCC80E45b57e774e13Ee4725963A872f0f47",
+    "deployer": "0xB89C8A9826cac01E3b4A01873Bd0C27553567609",
+    "tx_hash": "0x0f62eea9a59561bfea4573eabba7b82c6a7cd7686224d83746fdd8f956af4a3d",
+    "block": 11916214
   }
 }

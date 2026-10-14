@@ -67,14 +67,16 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 ## Environment notes
 - This repo lives on an **NTFS drive** (`/run/media/salman/FCB8237BB8233414/wallet`). Keep the Python venv OFF it
   (e.g. `~/.venvs/sentinel`). `core.fileMode` is set to false.
-- GitHub: https://github.com/Bijoy2406/Sentinel-Wallet (was empty when scaffolded). Not pushed yet (owner chose to keep it local for now). Issues track the work (labels person1/2/3).
+- GitHub: https://github.com/Bijoy2406/Sentinel-Wallet (public). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
 
 ## Status (update this section as work lands)
 - [x] Skeleton, shared types, stubs, rules.yaml, contract test (3 passing)
 - [x] Person 1 (done): Foundry 1.8.5 installed, TestUSD contract written and deployed on local Anvil, 6 on-chain tests pass
 - [x] Person 1 (done): chain.py + erc20.py (plan, decode, balances, approvals), tested
 - [x] Starter FastAPI + React app (status, wallet, preview, LLM test) and OpenAI-compatible LLM client
-- [ ] Person 1 (todo): simulate.py, execute.py (approval-token check), drainer, Sepolia evidence run, tech doc section
+- [x] Sepolia: Alchemy RPC set, throwaway wallet funded, TestUSD deployed on Sepolia (evidence/deployments.json)
+      Key selection: ACTIVE_NETWORK=local uses WALLET_PRIVATE_KEY; sepolia uses SEPOLIA_PRIVATE_KEY (chain.key_var()).
+- [ ] Person 1 (todo): simulate.py, execute.py (approval-token check), drainer, 5+ Sepolia txs through the full pipeline, tech doc section
 - [ ] Person 2: real policy, provenance, HMAC tokens, audit chain, 40 attack + 15 benign cases, security report
 - [ ] Person 3: intent parser, feed, agent, naive agent, full UI (decision card, confirm, kill switch, audit, attack replay), deck, video, final package
 
