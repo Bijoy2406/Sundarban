@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import firewall
 import wallet_engine
+from wallet_engine import chain, erc20
 from agent.intents import IntentParseError, parse_intent
 from shared.types import ActionRequest, AgentReply, Decision, TxPlan
 
@@ -41,6 +42,20 @@ def _prune_pending(now: float) -> None:
     while len(_PENDING) > _MAX_PENDING:
         oldest = min(_PENDING, key=lambda key: _PENDING[key].created_at)
         _PENDING.pop(oldest, None)
+
+
+def _resolve_token(token: str) -> str:
+    """Resolve a configured token symbol to its contract; never guess other symbols."""
+    if token.upper() == "ETH":
+        return token
+    if len(token) == 42 and token[:2].lower() == "0x":
+        return token
+    w3 = chain.get_web3()
+    address = chain.token_address()
+    configured_symbol = erc20.token_contract(w3, address).functions.symbol().call()
+    if token.casefold() != str(configured_symbol).casefold():
+        raise ValueError(f"Unsupported token symbol: {token}")
+    return address
 
 
 def _reasons(decision: Decision) -> str:
@@ -92,7 +107,7 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
         req = ActionRequest(
             request_id=str(uuid.uuid4()),
             action=intent["action"],
-            token=intent["token"],
+            token=_resolve_token(intent["token"]),
             to=intent["to"],
             amount=intent["amount"],
             unlimited=intent["unlimited"],
