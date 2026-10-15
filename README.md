@@ -264,7 +264,20 @@ result = drain("25")     # or drain() for "as much as the allowance and balance 
 ```
 or from a shell: `python -m wallet_engine.attacks.drainer 25`
 
-## 10. Handy `cast` commands (local chain)
+## 10. Evidence run (Sepolia transactions)
+
+`wallet_engine/scripts/evidence_run.py` pushes 8 scenarios through the full pipeline (6 legitimate actions,
+including one that needs a human confirm, and 2 that must be denied) and records them in
+`evidence/tx_hashes.csv`, with the audit log copied to `evidence/audit_<network>.jsonl`.
+
+```bash
+python wallet_engine/scripts/evidence_run.py --temp-allowlist --auto-confirm      # rehearsal on local anvil
+ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes         # the real run (needs the real firewall, #15)
+```
+On Sepolia it refuses to send without `--yes`, ends with `RESULT: OK` only if 5+ transactions were sent and
+at least one action was denied, and records scripted confirmations as "scripted" in the CSV.
+
+## 11. Handy `cast` commands (local chain)
 
 ```bash
 cast chain-id --rpc-url http://127.0.0.1:8545

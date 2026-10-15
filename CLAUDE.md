@@ -81,7 +81,9 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 - [x] Person 1: simulate.py + execute.py done and verified (local Anvil and one real Sepolia tx); binding.py defines what the approval token must bind to
 - [x] Person 1: drainer done (wallet_engine/attacks/drainer.py, local chain 31337 only, 17 tests)
 - [x] Audit log (#17) built by Person 1 on Person 2's behalf: firewall/audit.py, scripts/verify_audit.py, 29 tests
-- [ ] Person 1 (todo): 5+ Sepolia txs through the full pipeline once the real firewall lands (#11)
+- [x] #11 script written and rehearsed: wallet_engine/scripts/evidence_run.py (+ tests/test_evidence_run.py)
+- [ ] Person 1 (todo): RUN it on Sepolia once the real policy engine (#15) issues real tokens: `ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes`;
+      the recipients must be in firewall/rules.yaml allowlist (or use --temp-allowlist for a rehearsal only)
 - [ ] Person 2: real policy, provenance, HMAC tokens, audit chain, 40 attack + 15 benign cases, security report
 - [ ] Person 3: intent parser, feed, agent, naive agent, full UI (decision card, confirm, kill switch, audit, attack replay), deck, video, final package
 
