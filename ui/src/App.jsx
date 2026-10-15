@@ -86,7 +86,7 @@ function PlanCard({ onExecuted }) {
   const [execution, setExecution] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const set = (key) => (e) => setForm({ ...form, [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+  const set = (key) => (e) => {\n    setForm({ ...form, [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value });\n    setResult(null);\n    setExecution(null);\n    setError("");\n  };
 
   const submit = async (e) => {
     e.preventDefault(); setError(""); setResult(null); setExecution(null); setBusy(true);
