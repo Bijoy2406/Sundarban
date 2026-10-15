@@ -154,7 +154,7 @@ Hard limits, checked in this order before any transaction is sent:
 | Trust in the node | A single RPC provider (Alchemy for Sepolia) answers all reads and receives all transactions. A dishonest node could mislead the simulation. |
 | Approval list | Found by scanning `Approval` events from the deployment block, then reading current allowances. Efficient for a demo-sized chain, not for long histories. |
 | Single wallet | One signing key per network; no multi-signature or hardware wallet support. |
-| Dependency on the firewall | The chain layer is only as safe as `verify_token`. Until Person 2's real HMAC tokens land, the firewall is a stub that accepts a fixed string. |
+| Dependency on the firewall | The chain layer is only as safe as `verify_token`. The HMAC tokens are real (HMAC-SHA256 with expiry, constant-time compare), but the firewall's `evaluate()` and `confirm()` still hand out the old stub string, which `verify_token` rejects, so `execute()` refuses until the policy engine issues real tokens (issue #15). |
 | Key storage | Keys sit in a local `.env`. Acceptable for test keys; a real deployment would need a managed vault or hardware signer. |
 
 ## 9. Testing

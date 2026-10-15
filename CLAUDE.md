@@ -71,6 +71,8 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 
 ## Status (update this section as work lands)
 - [x] Skeleton, shared types, stubs, rules.yaml, contract test (3 passing)
+- [x] firewall/tokens.py real HMAC tokens (PR #31, Person 2). Still stubs: policy.evaluate/confirm (they return the old STUB string, which
+      verify_token now rejects, so execute() refuses until #15 is done), provenance (#14), state (#13)
 - [x] Person 1 (done): Foundry 1.8.5 installed, TestUSD contract written and deployed on local Anvil, 6 on-chain tests pass
 - [x] Person 1 (done): chain.py + erc20.py (plan, decode, balances, approvals), tested
 - [x] Starter FastAPI + React app (status, wallet, preview, LLM test) and OpenAI-compatible LLM client
@@ -78,7 +80,8 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
       Key selection: ACTIVE_NETWORK=local uses WALLET_PRIVATE_KEY; sepolia uses SEPOLIA_PRIVATE_KEY (chain.key_var()).
 - [x] Person 1: simulate.py + execute.py done and verified (local Anvil and one real Sepolia tx); binding.py defines what the approval token must bind to
 - [x] Person 1: drainer done (wallet_engine/attacks/drainer.py, local chain 31337 only, 17 tests)
-- [ ] Person 1 (todo): 5+ Sepolia txs through the full pipeline once the real firewall lands (#11), tech doc section (#12)
+- [x] Audit log (#17) built by Person 1 on Person 2's behalf: firewall/audit.py, scripts/verify_audit.py, 29 tests
+- [ ] Person 1 (todo): 5+ Sepolia txs through the full pipeline once the real firewall lands (#11)
 - [ ] Person 2: real policy, provenance, HMAC tokens, audit chain, 40 attack + 15 benign cases, security report
 - [ ] Person 3: intent parser, feed, agent, naive agent, full UI (decision card, confirm, kill switch, audit, attack replay), deck, video, final package
 
