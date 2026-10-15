@@ -77,7 +77,8 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 - [x] Sepolia: Alchemy RPC set, throwaway wallet funded, TestUSD deployed on Sepolia (evidence/deployments.json)
       Key selection: ACTIVE_NETWORK=local uses WALLET_PRIVATE_KEY; sepolia uses SEPOLIA_PRIVATE_KEY (chain.key_var()).
 - [x] Person 1: simulate.py + execute.py done and verified (local Anvil and one real Sepolia tx); binding.py defines what the approval token must bind to
-- [ ] Person 1 (todo): drainer (#10), 5+ Sepolia txs through the full pipeline once the real firewall lands (#11), tech doc section (#12)
+- [x] Person 1: drainer done (wallet_engine/attacks/drainer.py, local chain 31337 only, 17 tests)
+- [ ] Person 1 (todo): 5+ Sepolia txs through the full pipeline once the real firewall lands (#11), tech doc section (#12)
 - [ ] Person 2: real policy, provenance, HMAC tokens, audit chain, 40 attack + 15 benign cases, security report
 - [ ] Person 3: intent parser, feed, agent, naive agent, full UI (decision card, confirm, kill switch, audit, attack replay), deck, video, final package
 
