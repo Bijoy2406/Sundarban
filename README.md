@@ -21,8 +21,11 @@ against Sentinel Wallet (blocked, with the reason).
 | Shared types + contract test | ✅ done |
 | TestUSD token (ERC-20) + deploy script | ✅ done, tested on local Anvil, **deployed on Sepolia** (`evidence/deployments.json`) |
 | `wallet_engine`: `plan`, `balances`, `approvals` | ✅ real (read-only, sends nothing) |
+| `wallet_engine/attacks/drainer.py` | ✅ attacker for the attack replay; refuses unless local chain 31337 |
 | `wallet_engine`: `simulate`, `execute` | ✅ real: dry-run, then sign + send only with a valid approval token (verified on Anvil and Sepolia) |
-| `firewall`: rules, tokens, audit log | 🟡 **stub, always "allow"** (Person 2) |
+| `firewall`: HMAC approval tokens | ✅ real (`issue_token` / `verify_token`, PR #31) |
+| `firewall`: policy rules, `evaluate()` / `confirm()` | 🟡 **stub, always "allow"**, and it does not issue real tokens yet, so `execute()` refuses its decisions (Person 2, issue #15) |
+| `firewall`: audit log | ✅ real: hash-chained JSONL, tamper detection (`python scripts/verify_audit.py`) |
 | `agent`: intent parser, naive agent | 🟡 **stub** (Person 3) |
 | LLM client (OpenAI-compatible) + test button | ✅ done |
 | FastAPI backend + React frontend | ✅ starter: status, wallet, preview, LLM test |
@@ -63,6 +66,7 @@ wallet/
 │   ├─ erc20.py           amounts, build transfer/approve/revoke, decode calldata
 │   ├─ contracts/TestUSD.sol   the test token
 │   ├─ scripts/deploy.py       deploys TestUSD, writes evidence/deployments.json
+│   ├─ attacks/drainer.py     attacker for the attack replay (LOCAL chain only)
 │   └─ foundry.toml
 ├─ firewall/            rules, approval tokens, audit log    Person 2
 │   └─ rules.yaml         limits and allowlist
@@ -236,7 +240,31 @@ changed the shared data types or function signatures.
 | Port already in use | stop the old process, or change the port (`--port 8001`; also update `ui/vite.config.js`) |
 | LLM test fails | check the 3 `LLM_*` values in `.env`, then restart uvicorn |
 
-## 8. Handy `cast` commands (local chain)
+## 8. The audit log
+
+Every refusal and every sent transaction is appended to `logs/audit.jsonl` (git-ignored; override with
+`AUDIT_LOG_PATH`). Each line stores the hash of the previous line, so editing, deleting, inserting or
+re-ordering anything breaks the chain. Secrets (keys, approval tokens) are redacted before writing.
+
+```bash
+python scripts/verify_audit.py          # OK: N entries, head <hash>   (exit 0)  |  FAILED: ... line N (exit 1)
+python scripts/verify_audit.py tail     # newest entries
+```
+Deleting the *last* entries leaves a valid shorter chain; to detect that, keep the head hash somewhere
+else and call `audit.verify(expected_head=...)`.
+
+## 9. The attack drainer (local chain only)
+
+Plays the attacker in the attack replay: once the wallet has granted an allowance, it pulls tokens.
+It refuses unless `ACTIVE_NETWORK=local` **and** the node's chain id is 31337.
+
+```python
+from wallet_engine.attacks.drainer import drain, DrainRefused
+result = drain("25")     # or drain() for "as much as the allowance and balance allow"
+```
+or from a shell: `python -m wallet_engine.attacks.drainer 25`
+
+## 10. Handy `cast` commands (local chain)
 
 ```bash
 cast chain-id --rpc-url http://127.0.0.1:8545
