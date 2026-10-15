@@ -1,12 +1,21 @@
 """Wallet engine facade (Person 1 owns this folder).
 
-REAL:  plan(), balances(), approvals()   -> chain.py / erc20.py (read-only, nothing is sent)
-STUB:  simulate(), execute()             -> Person 1 tasks 5 and 6 (simulate.py, execute.py)
+All five functions are REAL now:
+  plan()      build the exact transaction            (chain.py / erc20.py)
+  simulate()  dry-run it, send nothing               (simulate.py)
+  execute()   sign + send, only with a valid token   (execute.py)
+  balances(), approvals()  read the wallet           (chain.py)
 SIGNATURES must not change (tests/test_contract.py checks them).
+
+Token binding: the approval token must be tied to what is really signed. Use
+`wallet_engine.binding.token_binding(plan)` to get {action, token, to, amount}.
 """
 from shared.types import ActionRequest, Decision, SimResult, TxPlan
 
 from . import chain, erc20
+from .execute import ExecutionFailed, ExecutionRefused
+from .execute import run as _execute
+from .simulate import run as _simulate
 
 
 def plan(req: ActionRequest) -> TxPlan:
@@ -15,14 +24,14 @@ def plan(req: ActionRequest) -> TxPlan:
 
 
 def simulate(plan: TxPlan) -> SimResult:
-    """STUB: always ok. Real version: eth_call + estimate_gas (Person 1, task 5)."""
-    return SimResult(ok=True, revert_reason=None, outflow=str(plan.args.get("value", "0")), allowance_after=None)
+    """Dry-run the transaction (eth_call + estimate_gas). Never raises: failures come back as ok=False."""
+    return _simulate(plan)
 
 
 def execute(plan: TxPlan, decision: Decision) -> str:
-    """STUB: returns a fake hash, sends nothing. Real version verifies the approval token,
-    signs and sends (Person 1, task 6)."""
-    return "0x" + "00" * 32
+    """Sign and send. Raises ExecutionRefused (nothing sent) unless the decision is 'allow' with a
+    token that matches exactly this transaction. Returns the transaction hash."""
+    return _execute(plan, decision)
 
 
 def balances() -> dict:

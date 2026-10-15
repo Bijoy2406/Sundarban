@@ -191,11 +191,13 @@ function PlanResult({ result }) {
           <tr><td>Arguments</td><td className="mono small">{JSON.stringify(plan.args)}</td></tr>
           <tr><td>Contract</td><td className="mono small">{plan.to}</td></tr>
           <tr><td>Gas estimate</td><td>{plan.gas}</td></tr>
-          <tr><td>Simulation</td><td>{simulation.ok ? "ok (stub)" : `failed: ${simulation.revert_reason}`}</td></tr>
+          <tr><td>Simulation</td><td>{simulation.ok
+            ? `✓ would succeed · leaves wallet: ${simulation.outflow}${simulation.allowance_after !== null ? ` · allowance after: ${simulation.allowance_after}` : ""}`
+            : `✗ would fail: ${simulation.revert_reason}`}</td></tr>
           <tr><td>Calldata</td><td className="mono small break">{plan.data}</td></tr>
         </tbody>
       </table>
-      <button disabled title="execute() is Person 1, task 6">Execute (not implemented yet)</button>
+      <button disabled title="Needs the execute API endpoint (issue #29)">Execute (coming: issue #29)</button>
     </div>
   );
 }

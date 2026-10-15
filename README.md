@@ -21,7 +21,7 @@ against Sentinel Wallet (blocked, with the reason).
 | Shared types + contract test | ✅ done |
 | TestUSD token (ERC-20) + deploy script | ✅ done, tested on local Anvil, **deployed on Sepolia** (`evidence/deployments.json`) |
 | `wallet_engine`: `plan`, `balances`, `approvals` | ✅ real (read-only, sends nothing) |
-| `wallet_engine`: `simulate`, `execute` | 🟡 **stub** (Person 1) |
+| `wallet_engine`: `simulate`, `execute` | ✅ real: dry-run, then sign + send only with a valid approval token (verified on Anvil and Sepolia) |
 | `firewall`: rules, tokens, audit log | 🟡 **stub, always "allow"** (Person 2) |
 | `agent`: intent parser, naive agent | 🟡 **stub** (Person 3) |
 | LLM client (OpenAI-compatible) + test button | ✅ done |
@@ -195,7 +195,8 @@ Expected: `"backend":"ok"`, `"connected":true`, `"chain_id":31337`, `"token_depl
 | **Preview** (transfer 10 to the prefilled address) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and a green **ALLOW** card tagged **STUB** |
 | **Test connection** | with LLM settings filled: "✓ <model> replied OK in … ms" |
 
-Nothing is sent from the UI yet: **Execute** is disabled until Person 1 builds `execute()`.
+The preview now shows the **real simulation** (e.g. a transfer larger than your balance shows "would fail: TestUSD: insufficient balance").
+Nothing is sent from the UI yet: the **Execute** button waits for the execute API endpoint (issue #29).
 
 **Tests:**
 ```bash

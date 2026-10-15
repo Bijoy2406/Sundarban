@@ -44,14 +44,14 @@ def test_signatures():
         "approval_token", "request_id", "action", "token_addr", "to", "amount"]
 
 
-def test_stub_pipeline_runs_end_to_end():
-    """simulate -> evaluate -> execute fit together (plan() is real now and needs a chain,
-    so here the TxPlan is built by hand)."""
+def test_firewall_facade_returns_a_valid_decision():
+    """evaluate() and confirm() must always return a Decision with a known value.
+    (simulate/execute are real now; they are covered in tests/test_simulate_execute.py.)"""
     req = ActionRequest("r1", "transfer", "0xTOKEN", "0xALICE", "10", False, "user_chat")
     plan = TxPlan(chain_id=31337, from_addr="0xFROM", to="0xTOKEN", value=0, data="0x", gas=21000,
                   function="transfer(address,uint256)", args={"to": "0xALICE", "value": 10}, summary="test")
-    sim = wallet_engine.simulate(plan)
-    decision = firewall.evaluate(req, plan, sim)
-    assert decision.decision in {"allow", "ask", "deny"}
-    tx_hash = wallet_engine.execute(plan, decision)
-    assert tx_hash.startswith("0x")
+    sim = SimResult(ok=True, revert_reason=None, outflow="10", allowance_after=None)
+    for decision in (firewall.evaluate(req, plan, sim), firewall.confirm(req, plan)):
+        assert isinstance(decision, Decision)
+        assert decision.decision in {"allow", "ask", "deny"}
+        assert decision.request_id == "r1"
