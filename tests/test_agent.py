@@ -15,6 +15,7 @@ def setup(monkeypatch):
         args={}, summary="Send 10 TUSD to Alice",
     )
     sim = SimResult(ok=True, revert_reason=None, outflow="10", allowance_after=None)
+    monkeypatch.setattr(orchestrator, "_resolve_token", lambda token: "0x" + "22" * 20)
     monkeypatch.setattr(orchestrator, "parse_intent", lambda text, **kwargs: {
         "action": "transfer", "token": "TUSD", "to": "0xAlice",
         "amount": "10", "unlimited": False, "rationale": "test",
@@ -80,3 +81,10 @@ def test_parse_failure_returns_polite_blocked_reply(setup, monkeypatch):
     assert reply.blocked is True
     assert "Sorry" in reply.text
     assert not setup[0]
+
+
+def test_public_facade_keeps_contract_and_exposes_confirmation():
+    import agent
+    import inspect
+    assert list(inspect.signature(agent.handle_message).parameters) == ["text", "origin"]
+    assert callable(agent.confirm_pending)
