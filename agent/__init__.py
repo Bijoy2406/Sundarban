@@ -1,11 +1,9 @@
-"""Agent facade (Person 3 owns this folder).
+"""Public agent facade.
 
-STUB: returns a fake reply so the UI and tests can run before the real LLM agent exists.
-SIGNATURES must not change.
+handle_message keeps the shared contract stable. confirm_pending is called only
+from a trusted confirmation endpoint after an explicit human action.
 """
 from shared.types import AgentReply
+from .agent import confirm_pending, handle_message
 
-
-def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
-    """STUB."""
-    return AgentReply(text=f"STUB agent received: {text!r} (origin={origin})", blocked=False)
+__all__ = ["AgentReply", "handle_message", "confirm_pending"]
