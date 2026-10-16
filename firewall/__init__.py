@@ -8,3 +8,4 @@ from . import audit, policy, provenance, state, tokens  # noqa: F401  (re-export
 
 evaluate = policy.evaluate
 confirm = policy.confirm
+preview = policy.preview   # same answer as evaluate(), but with no side effects (for the Preview screen)

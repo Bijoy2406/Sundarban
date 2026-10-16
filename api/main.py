@@ -1,4 +1,18 @@
-"""Sentinel Wallet REST API with server-authoritative execution and confirmation."""
+"""Sentinel Wallet REST API with server-authoritative execution and confirmation.
+
+Run from the repo root:   uvicorn api.main:app --reload --port 8000
+Docs (auto-generated):    http://127.0.0.1:8000/docs
+
+The frontend (ui/) calls these endpoints through the Vite proxy (/api -> :8000).
+
+Endpoints that matter for safety:
+  POST /api/plan     PREVIEW ONLY. Builds + simulates + asks firewall.preview(), which has no side effects
+                     (it does not count as spending, does not issue a token, cannot be confirmed).
+  POST /api/execute  Re-runs plan -> simulate -> firewall.evaluate() on the SERVER (a browser-supplied
+                     decision is ignored), then sends only if the answer is "allow". An "ask" is remembered
+                     on the server and must be confirmed separately.
+  POST /api/confirm  The human confirmation step for a server-remembered "ask" (firewall.confirm()).
+"""
 import threading
 import time
 import uuid
@@ -67,7 +81,8 @@ def _request(body: "PlanRequest", request_id: str | None = None) -> ActionReques
     return ActionRequest(
         request_id=request_id or str(uuid.uuid4()), action=body.action,
         token=chain.token_address(), to=body.to, amount=body.amount,
-        unlimited=body.unlimited, origin="user_chat",
+        unlimited=body.unlimited,
+        origin="user_chat",   # set by CODE from the channel (the UI form), never by an LLM
     )
 
 
@@ -135,16 +150,21 @@ class ConfirmRequest(BaseModel):
 
 @app.post("/api/plan")
 def plan(body: PlanRequest):
-    """Preview only. If the firewall asks, retain the request server-side for confirmation."""
+    """Preview only. Nothing is sent, nothing is counted, nothing is remembered.
+
+    firewall.preview() answers like evaluate() but has no side effects, so any number of previews
+    leaves the daily cap, the velocity counter and the confirmation list untouched. An "ask" shown
+    here can NOT be confirmed: the person must press Execute, and the server then asks the question.
+    """
     req = _request(body)
     try:
-        tx_plan, sim, decision = _plan_simulate_evaluate(req)
+        tx_plan = wallet_engine.plan(req)
+        sim = wallet_engine.simulate(tx_plan)
+        decision = firewall.preview(req, tx_plan, sim)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot build or evaluate transaction ({type(exc).__name__}).") from exc
-    if decision.decision == "ask":
-        _remember_ask(req)
     return _jsonable({"request": asdict(req), "plan": asdict(tx_plan),
                       "simulation": asdict(sim), "decision": asdict(decision), "executed": False})
 

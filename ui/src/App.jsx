@@ -82,55 +82,116 @@ function LlmCard() {
 
 function PlanCard({ onExecuted }) {
   const [form, setForm] = useState({ action: "transfer", to: DEMO_RECIPIENT, amount: "10", unlimited: false });
-  const [result, setResult] = useState(null);
-  const [execution, setExecution] = useState(null);
+  const [result, setResult] = useState(null);        // the Preview answer (nothing is sent, nothing is counted)
+  const [execution, setExecution] = useState(null);  // the answer of Execute / Confirm
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const set = (key) => (e) => {\n    setForm({ ...form, [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value });\n    setResult(null);\n    setExecution(null);\n    setError("");\n  };
+
+  // Any edit of the form invalidates what is on screen: preview, execution result and errors.
+  const set = (key) => (e) => {
+    setForm({ ...form, [key]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+    setResult(null);
+    setExecution(null);
+    setError("");
+  };
 
   const submit = async (e) => {
-    e.preventDefault(); setError(""); setResult(null); setExecution(null); setBusy(true);
-    try { setResult(await previewPlan(form)); } catch (err) { setError(err.message); } finally { setBusy(false); }
+    e.preventDefault();
+    setError("");
+    setResult(null);
+    setExecution(null);
+    setBusy(true);
+    try {
+      setResult(await previewPlan(form));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
+
   const runExecute = async () => {
-    setError(""); setExecution(null); setBusy(true);
+    setError("");
+    setExecution(null);
+    setBusy(true);
     try {
       const outcome = await executePlan(form);
       setExecution(outcome);
       if (outcome.status === "executed") onExecuted();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
+
   const runConfirm = async (requestId) => {
-    setError(""); setBusy(true);
+    setError("");
+    setBusy(true);
     try {
       const outcome = await confirmPlan(requestId);
       setExecution(outcome);
       if (outcome.status === "executed") onExecuted();
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const decision = execution?.decision || result?.decision;
-  const awaitingId = execution?.status === "awaiting_confirmation" ? execution.request_id : result?.request?.request_id;
-  const showExecute = decision?.decision === "allow" && execution?.status !== "executed";
-  const showConfirm = decision?.decision === "ask" && !!awaitingId;
-  return <section className="card">
-    <h2>Preview an action</h2>
-    <p className="muted small">The server builds and simulates the transaction, then the firewall decides. Execute re-runs those checks server-side.</p>
-    <form onSubmit={submit} className="form">
-      <label>Action<select value={form.action} onChange={set("action")}>
-        <option value="transfer">transfer</option><option value="approve">approve</option><option value="revoke">revoke</option>
-      </select></label>
-      <label className="wide">{form.action === "transfer" ? "Recipient" : "Spender"}<input className="mono" value={form.to} onChange={set("to")} /></label>
-      {form.action !== "revoke" && <label>Amount (TUSD)<input value={form.amount} onChange={set("amount")} disabled={form.unlimited} /></label>}
-      {form.action === "approve" && <label className="check"><input type="checkbox" checked={form.unlimited} onChange={set("unlimited")} /> unlimited</label>}
-      <button type="submit" disabled={busy}>{busy ? "Checking…" : "Preview"}</button>
-    </form>
-    {error && <p className="error">{error}</p>}
-    {result && <PlanResult result={result} />}
-    {execution && <ExecutionResult result={execution} />}
-    {showExecute && <button onClick={runExecute} disabled={busy}>{busy ? "Executing…" : "Execute"}</button>}
-    {showConfirm && <button onClick={() => runConfirm(awaitingId)} disabled={busy}>{busy ? "Confirming…" : "Confirm transaction"}</button>}
-  </section>;
+  // Execute is offered after a preview that says allow or ask (a deny has nothing to execute).
+  // Confirm is offered ONLY after the server itself answered "awaiting_confirmation" to Execute:
+  // a preview is never confirmable, so it can not skip the question.
+  const previewed = result?.decision?.decision;
+  const showExecute = !!result && (previewed === "allow" || previewed === "ask") && !execution;
+  const awaitingId = execution?.status === "awaiting_confirmation" ? execution.request_id : null;
+
+  return (
+    <section className="card">
+      <h2>Preview an action</h2>
+      <p className="muted small">
+        Preview only checks: it sends nothing and does not count as spending. Execute re-runs every check on the
+        server and sends only if the firewall allows it.
+      </p>
+      <form onSubmit={submit} className="form">
+        <label>Action
+          <select value={form.action} onChange={set("action")}>
+            <option value="transfer">transfer</option>
+            <option value="approve">approve</option>
+            <option value="revoke">revoke</option>
+          </select>
+        </label>
+        <label className="wide">{form.action === "transfer" ? "Recipient" : "Spender"}
+          <input className="mono" value={form.to} onChange={set("to")} />
+        </label>
+        {form.action !== "revoke" && (
+          <label>Amount (TUSD)
+            <input value={form.amount} onChange={set("amount")} disabled={form.unlimited} />
+          </label>
+        )}
+        {form.action === "approve" && (
+          <label className="check">
+            <input type="checkbox" checked={form.unlimited} onChange={set("unlimited")} /> unlimited
+          </label>
+        )}
+        <button type="submit" disabled={busy}>{busy ? "Checking…" : "Preview"}</button>
+      </form>
+
+      {error && <p className="error">{error}</p>}
+      {result && <PlanResult result={result} />}
+      {execution && <ExecutionResult result={execution} />}
+      {showExecute && (
+        <button onClick={runExecute} disabled={busy}>
+          {busy ? "Executing…" : previewed === "ask" ? "Execute (will ask for confirmation)" : "Execute"}
+        </button>
+      )}
+      {awaitingId && (
+        <button onClick={() => runConfirm(awaitingId)} disabled={busy}>
+          {busy ? "Confirming…" : "Confirm transaction"}
+        </button>
+      )}
+    </section>
+  );
 }
 
 function PlanResult({ result }) {
