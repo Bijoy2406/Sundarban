@@ -11,7 +11,8 @@ import uuid
 
 from shared.types import ActionRequest, AgentReply, Decision
 from agent.intents import IntentParseError, parse_intent
-from wallet_engine import chain, execute, plan, simulate
+from agent.resolve import UserInputError, require_address, resolve_token
+from wallet_engine import ExecutionRefused, chain, execute, plan, simulate
 from wallet_engine.binding import token_binding
 from firewall.tokens import issue_token
 
@@ -40,15 +41,18 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
         req = ActionRequest(
             request_id=request_id,
             action=intent["action"],
-            token=intent["token"],
-            to=intent["to"],
+            token=resolve_token(intent["token"]),   # same symbol -> address step as the protected agent
+            to=require_address(intent["to"], intent["action"]),
             amount=intent["amount"],
             unlimited=intent["unlimited"],
             origin=origin,
             rationale=intent["rationale"],
         )
 
-        tx_plan = plan(req)
+        try:
+            tx_plan = plan(req)
+        except ValueError as exc:
+            raise UserInputError(f"I can't build that transaction: {exc}") from exc
         sim = simulate(tx_plan)
         if not sim.ok:
             return AgentReply(
@@ -80,8 +84,10 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
             tx_hash=tx_hash,
             blocked=False,
         )
-    except IntentParseError as exc:
+    except (IntentParseError, UserInputError) as exc:
         return AgentReply(text=str(exc), blocked=True)
+    except ExecutionRefused as exc:
+        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
     except Exception as exc:
         # Keep internal exception details out of the chat response.
         return AgentReply(

@@ -4,6 +4,8 @@ import pytest
 import agent.agent as orchestrator
 from shared.types import Decision, SimResult, TxPlan
 
+ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"   # Anvil public test account #1
+
 
 @pytest.fixture
 def setup(monkeypatch):
@@ -17,7 +19,7 @@ def setup(monkeypatch):
     sim = SimResult(ok=True, revert_reason=None, outflow="10", allowance_after=None)
     monkeypatch.setattr(orchestrator, "_resolve_token", lambda token: "0x" + "22" * 20)
     monkeypatch.setattr(orchestrator, "parse_intent", lambda text, **kwargs: {
-        "action": "transfer", "token": "TUSD", "to": "0xAlice",
+        "action": "transfer", "token": "TUSD", "to": ALICE,
         "amount": "10", "unlimited": False, "rationale": "test",
     })
     monkeypatch.setattr(orchestrator.wallet_engine, "plan", lambda req: calls.append(("plan", req)) or plan)
@@ -88,3 +90,26 @@ def test_public_facade_keeps_contract_and_exposes_confirmation():
     import inspect
     assert list(inspect.signature(agent.handle_message).parameters) == ["text", "origin"]
     assert callable(agent.confirm_pending)
+
+
+def test_a_name_instead_of_an_address_gets_a_helpful_message(setup, monkeypatch):
+    calls = setup[0]
+    monkeypatch.setattr(orchestrator, "parse_intent", lambda text, **kwargs: {
+        "action": "transfer", "token": "TUSD", "to": "Alice",
+        "amount": "10", "unlimited": False, "rationale": "test",
+    })
+    reply = orchestrator.handle_message("Send 10 TUSD to Alice")
+    assert reply.blocked is True
+    assert "full 0x address" in reply.text and "recipient" in reply.text
+    assert calls == []                      # nothing was planned, simulated, evaluated or sent
+
+
+def test_a_refused_execution_shows_the_reason(setup, monkeypatch):
+    from wallet_engine import ExecutionRefused
+
+    def refuse(plan, decision):
+        raise ExecutionRefused("The approval token is invalid, expired, or does not match this transaction")
+    monkeypatch.setattr(orchestrator.wallet_engine, "execute", refuse)
+    reply = orchestrator.handle_message("Send 10 TUSD to Alice")
+    assert reply.blocked is True and reply.tx_hash is None
+    assert "Nothing was sent" in reply.text and "approval token is invalid" in reply.text

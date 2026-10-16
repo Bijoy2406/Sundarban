@@ -13,8 +13,9 @@ from dataclasses import dataclass
 
 import firewall
 import wallet_engine
-from wallet_engine import chain, erc20
 from agent.intents import IntentParseError, parse_intent
+from agent.resolve import UserInputError, require_address
+from agent.resolve import resolve_token as _resolve_token
 from shared.types import ActionRequest, AgentReply, Decision, TxPlan
 
 _PENDING_TTL_SECONDS = 600
@@ -42,20 +43,6 @@ def _prune_pending(now: float) -> None:
     while len(_PENDING) > _MAX_PENDING:
         oldest = min(_PENDING, key=lambda key: _PENDING[key].created_at)
         _PENDING.pop(oldest, None)
-
-
-def _resolve_token(token: str) -> str:
-    """Resolve a configured token symbol to its contract; never guess other symbols."""
-    if token.upper() == "ETH":
-        return token
-    if len(token) == 42 and token[:2].lower() == "0x":
-        return token
-    w3 = chain.get_web3()
-    address = chain.token_address()
-    configured_symbol = erc20.token_contract(w3, address).functions.symbol().call()
-    if token.casefold() != str(configured_symbol).casefold():
-        raise ValueError(f"Unsupported token symbol: {token}")
-    return address
 
 
 def _reasons(decision: Decision) -> str:
@@ -108,13 +95,16 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
             request_id=str(uuid.uuid4()),
             action=intent["action"],
             token=_resolve_token(intent["token"]),
-            to=intent["to"],
+            to=require_address(intent["to"], intent["action"]),
             amount=intent["amount"],
             unlimited=intent["unlimited"],
             origin=origin,
             rationale=intent["rationale"],
         )
-        tx_plan = wallet_engine.plan(req)
+        try:
+            tx_plan = wallet_engine.plan(req)
+        except ValueError as exc:
+            raise UserInputError(f"I can't build that transaction: {exc}") from exc
         sim = wallet_engine.simulate(tx_plan)
         decision = firewall.evaluate(req, tx_plan, sim)
 
@@ -137,8 +127,11 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
             tx_hash=tx_hash,
             blocked=False,
         )
-    except IntentParseError as exc:
+    except (IntentParseError, UserInputError) as exc:
         return AgentReply(text=str(exc), blocked=True)
+    except wallet_engine.ExecutionRefused as exc:
+        # Written by the wallet engine in plain English and safe to show (it never contains a secret).
+        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
     except Exception as exc:
         # Never leak provider errors, transaction internals, or secrets into chat.
         return AgentReply(
@@ -178,6 +171,8 @@ def confirm_pending(request_id: str) -> AgentReply:
             tx_hash=tx_hash,
             blocked=False,
         )
+    except wallet_engine.ExecutionRefused as exc:
+        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
     except Exception as exc:
         return AgentReply(
             text=f"I couldn't safely complete the confirmation ({type(exc).__name__}). No success is being reported.",
