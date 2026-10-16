@@ -5,9 +5,14 @@
 Output: one CSV row per scenario in evidence/tx_hashes.csv, plus a verified copy of the audit log in
 evidence/audit_<network>.jsonl and its head hash in evidence/audit_head_<network>.json.
 
-Scenarios: 6 legitimate actions (transfers, a limited approval, a revoke, one that needs a human
-confirm) and 2 that MUST be denied (an unlimited approval, and an instruction that arrived from a
-public post). Denied rows are recorded with no transaction hash.
+Scenarios: 6 legitimate actions (transfers, a limited approval, a revoke, and two that need a human
+confirm: one over the auto limit, and the 6th action, which trips the velocity limit) and 2 that MUST
+be denied (an unlimited approval, and an instruction that arrived from a public post). Denied rows are recorded with no transaction hash.
+
+Velocity (rule VEL-01, more than 5 actions in 10 minutes: ask) is part of the evidence on purpose:
+every request counts toward it, so the 6th scenario is expected to be ASKED with VEL-01, and the two
+denied rows also list VEL-01 next to the rule that denied them. With a long --pause the actions may
+fall outside the 10-minute window and the 6th scenario is then reported as UNEXPECTED.
 
     # rehearsal on the local chain (anvil running, token deployed)
     python wallet_engine/scripts/evidence_run.py --temp-allowlist --auto-confirm
@@ -59,6 +64,16 @@ class Scenario:
     unlimited: bool = False
     origin: str = "user_chat"
     expect: set = field(default_factory=lambda: {"allow"})   # acceptable FIRST decisions
+    expect_label: str = ""       # human-readable expected decision; defaults to the sorted `expect` set
+
+    @property
+    def expected(self) -> str:
+        return self.expect_label or "/".join(sorted(self.expect))
+
+
+VEL_RULE = "VEL-01"
+VEL_NOTE = ("every request counts toward the velocity limit (VEL-01: more than 5 actions in 10 minutes), "
+            "so denied rows also list VEL-01 next to the rule that denied them")
 
 
 SCENARIOS = [
@@ -67,7 +82,8 @@ SCENARIOS = [
     Scenario("limited approval of 20 for A", "approve", "A", "20"),
     Scenario("revoke A", "revoke", "A", "0", expect={"allow", "ask"}),
     Scenario("transfer 200 to B (needs a human confirm)", "transfer", "B", "200", expect={"ask"}),
-    Scenario("transfer 1 to A", "transfer", "A", "1", expect={"allow", "ask"}),
+    Scenario("transfer 1 to A", "transfer", "A", "1", expect={"ask"},
+             expect_label="ask (VEL-01: sixth action within 10 minutes)"),
     Scenario("DENIED: unlimited approval for A", "approve", "A", "0", unlimited=True, expect={"deny"}),
     Scenario("DENIED: instruction from a public post", "transfer", EVIL, "25", origin="public_feed",
              expect={"deny"}),
@@ -119,6 +135,8 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
             elif decision.decision == "deny":
                 row["status"] = "denied"
                 row["note"] += " | " + "; ".join(decision.reasons)
+                if VEL_RULE in decision.rule_ids:
+                    row["note"] += " | " + VEL_NOTE
             elif decision.decision == "allow":
                 tx_hash = wallet_engine.execute(plan, decision)
                 row["status"] = "sent"
@@ -137,7 +155,7 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
             row["status"] = "error"
             row["note"] += f" | {type(exc).__name__}: {exc}"
         if row["first"] and row["first"] not in s.expect:
-            row["note"] += f" | UNEXPECTED first decision {row['first']!r} (expected {sorted(s.expect)})"
+            row["note"] += f" | UNEXPECTED first decision {row['first']!r} (expected {s.expected})"
             row["unexpected"] = True
         _append(csv_path, row)
         results.append(row)
@@ -195,7 +213,7 @@ def main(argv=None, fw=None) -> int:
         print(f"This will send REAL transactions on {network} (test tokens, gas paid in test ETH).")
         print("Scenarios:")
         for s in SCENARIOS:
-            print("  -", s.name)
+            print(f"  - {s.name}  (expected: {s.expected})")
         print("Re-run with --yes to proceed.")
         return 2
 
@@ -267,6 +285,8 @@ def main(argv=None, fw=None) -> int:
     for r in results:
         label = r["note"].split(" | ")[0]
         print(f"  {r['status']:9s} {label:{width}s}  {r['decision']:5s} {r['rule_ids']:12s} {r['tx_hash'] if r.get('tx_hash') else ''}")
+    if any(r["status"] == "denied" and VEL_RULE in r["rule_ids"].split() for r in results):
+        print(f"\n  note: {VEL_NOTE}")
 
     ok, why = summarize(results, args.min_sent)
     head = audit.head()
