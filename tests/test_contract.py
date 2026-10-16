@@ -36,6 +36,7 @@ def test_signatures():
     assert _params(wallet_engine.approvals) == []
     assert _params(firewall.evaluate) == ["req", "plan", "sim"]
     assert _params(firewall.confirm) == ["req", "plan"]
+    assert _params(firewall.preview) == ["req", "plan", "sim"]
     assert _params(audit.log) == ["event"]
     assert _params(state.set_kill_switch) == ["on"]
     assert _params(agent.handle_message) == ["text", "origin"]

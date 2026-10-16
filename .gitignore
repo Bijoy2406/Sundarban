@@ -26,3 +26,5 @@ Thumbs.db
 # local logs (the evidence/ folder is committed on purpose)
 *.log
 logs/
+*.lock
+*.plock
