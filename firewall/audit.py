@@ -20,30 +20,39 @@ evidence/ when you want to submit it).
 Safety
   * Values under keys that look like secrets (private key, secret, api key, password, approval
     token, mnemonic, seed) are replaced with "[REDACTED]" before anything is written.
-  * Appends are serialised by a thread lock and an OS file lock, so several threads or processes
-    can write the same log without breaking the chain.
+  * Appends are serialised by a thread lock and a cross-process lock on <log>.lock (flock on Linux/macOS,
+    msvcrt.locking on Windows, an exclusive-create <log>.plock file anywhere else), so several threads or
+    processes can write the same log without breaking the chain.
   * A log whose last line is damaged is NOT extended silently: log() raises AuditCorruptError.
 
 Command line:  python scripts/verify_audit.py [path]      (or: python scripts/verify_audit.py tail)
 """
+import contextlib
 import hashlib
 import json
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:                      # POSIX only; on Windows the thread lock alone is used
+try:                      # Linux / macOS
     import fcntl
 except ImportError:       # pragma: no cover
     fcntl = None
+try:                      # Windows
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 GENESIS = "0" * 64
 _KEYS = {"seq", "ts", "event", "prev_hash", "hash"}
 _SENSITIVE = ("private_key", "secret", "api_key", "password", "approval_token", "mnemonic", "seed")
 _LOCK = threading.Lock()
+LOCK_TIMEOUT = 30.0        # seconds to wait for another process to finish its append
+STALE_LOCK_SECONDS = 15.0  # a portable lock file older than this was left behind by a crashed process
 
 
 class AuditError(RuntimeError):
@@ -95,20 +104,135 @@ def _normalize(event: dict) -> dict:
     return json.loads(json.dumps(_redact(event), default=str, sort_keys=True, allow_nan=False))
 
 
-def _lock(handle) -> None:
+def _lock_mode() -> str:
+    """Which cross-process lock to use: "fcntl" (Linux/macOS), "msvcrt" (Windows) or "portable".
+
+    AUDIT_LOCK_MODE can force one (used by the tests to exercise the Windows / fallback paths on Linux).
+    A forced mode that this system does not have falls back to "portable".
+    """
+    forced = os.getenv("AUDIT_LOCK_MODE", "").strip().lower()
+    if forced == "fcntl" and fcntl is not None:
+        return "fcntl"
+    if forced == "msvcrt" and msvcrt is not None:
+        return "msvcrt"
+    if forced in ("fcntl", "msvcrt", "portable"):
+        return "portable"
     if fcntl is not None:
+        return "fcntl"
+    if msvcrt is not None:
+        return "msvcrt"
+    return "portable"
+
+
+def _lock_path(path: Path) -> Path:
+    """Lock file for flock / msvcrt.locking (the file itself is never deleted)."""
+    return path.with_name(path.name + ".lock")
+
+
+def _portable_lock_path(path: Path) -> Path:
+    """A DIFFERENT name for the portable lock: its existence IS the lock, so it must never be a file that
+    flock / msvcrt.locking merely opened (that would make the fallback wait for a lock nobody holds)."""
+    return path.with_name(path.name + ".plock")
+
+
+def _wait_or_fail(deadline: float) -> None:
+    if time.monotonic() > deadline:
+        raise AuditError("timed out waiting for another process to finish writing the audit log")
+    time.sleep(0.005)
+
+
+@contextlib.contextmanager
+def _fcntl_lock(path: Path):
+    """flock on a separate lock file. Yields False if this file system has no flock (the caller falls back)."""
+    with open(_lock_path(path), "a+b") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        except OSError:       # some network / FUSE file systems have no flock; the thread lock remains
-            pass
-
-
-def _unlock(handle) -> None:
-    if fcntl is not None:
+        except OSError:       # some network / FUSE file systems have no flock
+            yield False
+            return
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        except OSError:
+            yield True
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+
+
+@contextlib.contextmanager
+def _msvcrt_lock(path: Path):
+    """Windows: lock one byte of a separate lock file (msvcrt.locking), waiting politely until it is free."""
+    with open(_lock_path(path), "a+b") as handle:
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"\0")          # the locked byte must exist
+            handle.flush()
+        deadline = time.monotonic() + LOCK_TIMEOUT
+        while True:
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError:
+                _wait_or_fail(deadline)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+
+
+@contextlib.contextmanager
+def _portable_lock(path: Path):
+    """Last resort that needs nothing from the OS: the lock IS a file created exclusively (O_EXCL).
+
+    Whoever creates it owns the lock; deleting it releases the lock. A lock file left behind by a crashed
+    process is removed once it is older than STALE_LOCK_SECONDS (an append takes milliseconds).
+    """
+    lock = _portable_lock_path(path)
+    deadline = time.monotonic() + LOCK_TIMEOUT
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) > STALE_LOCK_SECONDS:
+                    os.unlink(lock)
+                    continue
+            except OSError:        # it vanished between the two calls: just try again
+                continue
+            _wait_or_fail(deadline)
+            continue
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+        break
+    try:
+        yield
+    finally:
+        try:
+            os.unlink(lock)
+        except FileNotFoundError:
             pass
+
+
+@contextlib.contextmanager
+def _cross_process_lock(path: Path):
+    """Hold a lock that other PROCESSES also respect for the whole read-last-line-then-append step."""
+    mode = _lock_mode()
+    if mode == "fcntl":
+        with _fcntl_lock(path) as locked:
+            if locked:
+                yield
+                return
+        mode = "portable"        # no flock here: do NOT carry on unlocked, use the portable lock instead
+    if mode == "msvcrt":
+        with _msvcrt_lock(path):
+            yield
+    else:
+        with _portable_lock(path):
+            yield
 
 
 def _parse(raw: bytes) -> dict:
@@ -157,10 +281,9 @@ def log(event: dict) -> None:
     path = default_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with _LOCK:
-        with open(path, "a+b") as handle:
-            _lock(handle)
-            try:
+    with _LOCK:                                  # other threads of this process
+        with _cross_process_lock(path):          # other processes (Linux, macOS and Windows)
+            with open(path, "a+b") as handle:
                 raw_last = _last_line(handle)
                 if raw_last is None:
                     seq, prev_hash = 0, GENESIS
@@ -178,8 +301,6 @@ def log(event: dict) -> None:
                 handle.write((json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
-            finally:
-                _unlock(handle)
 
 
 def check(path: str | os.PathLike | None = None, expected_head: str | None = None) -> AuditCheck:

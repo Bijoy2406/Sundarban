@@ -332,6 +332,29 @@ def evaluate(req: ActionRequest, plan: Optional[TxPlan] = None, sim: Optional[Si
         return decision
 
 
+def preview(req: ActionRequest, plan: Optional[TxPlan] = None, sim: Optional[SimResult] = None) -> Decision:
+    """What evaluate() would answer right now, with NO side effects (for a "Preview" screen).
+
+    It runs exactly the same rules, but it does not count the request toward VEL-01, does not count any
+    spending, does not issue an approval token, does not open a confirmation question and does not write
+    to the audit log. Calling it any number of times changes nothing, and its answer can never be used to
+    send money: only evaluate() (and confirm() after an "ask") can produce a token.
+
+    Not checked here, because they need side effects: creating the token and writing the audit entry
+    (evaluate() turns an "allow" into a "deny" if either of those fails).
+    """
+    if not isinstance(req, ActionRequest):
+        return _deny("unknown", "DEF-01", "The request was not in a form the firewall understands, so it is refused by default.")
+    with _LOCK:
+        findings, _binding = _safe_assess(req, plan, sim, confirming=False)
+        outcome = _decide(findings)
+        if outcome == "allow":
+            return Decision(request_id=req.request_id, decision="allow", rule_ids=["ALLOW"],
+                            reasons=["Every safety check passed."], approval_token=None)
+        return Decision(request_id=req.request_id, decision=outcome, rule_ids=[r for r, _, _ in findings],
+                        reasons=[text for _, _, text in findings], approval_token=None)
+
+
 def confirm(req: ActionRequest, plan: Optional[TxPlan] = None) -> Decision:
     if not isinstance(req, ActionRequest):
         return _deny("unknown", "DEF-01", "The request was not in a form the firewall understands, so it is refused by default.")
