@@ -21,10 +21,12 @@ ALICE, BOB = evidence_run.ALICE, evidence_run.BOB
 
 
 class StandInPolicy:
-    """Just enough rules to rehearse the script. NOT the real firewall."""
+    """Just enough rules to rehearse the script. NOT the real firewall. Like the real one, every request
+    counts toward velocity (VEL-01 asks from the 6th action) and every fired rule is reported."""
 
     def __init__(self):
         self.allow = {ALICE.lower(), BOB.lower()}
+        self.actions = 0
 
     def _token(self, req, plan):
         from firewall import tokens
@@ -33,17 +35,22 @@ class StandInPolicy:
         return tokens.issue_token(req.request_id, b["action"], b["token"], b["to"], b["amount"])
 
     def evaluate(self, req, plan=None, sim=None):
-        def d(kind, rules, reasons, token=None):
-            return Decision(req.request_id, kind, rules, reasons, token)
+        self.actions += 1
+        deny, ask = [], []
         if req.origin != "user_chat":
-            return d("deny", ["PRV-01"], ["untrusted source"])
+            deny.append(("PRV-01", "untrusted source"))
         if req.unlimited:
-            return d("deny", ["APR-01"], ["unlimited approvals are never allowed"])
+            deny.append(("APR-01", "unlimited approvals are never allowed"))
         if req.to.lower() not in self.allow:
-            return d("ask", ["ALW-01"], ["new recipient"])
+            ask.append(("ALW-01", "new recipient"))
         if Decimal(req.amount) > 50:
-            return d("ask", ["LIM-02"], ["above the auto-approve limit"])
-        return d("allow", [], [], self._token(req, plan))
+            ask.append(("LIM-02", "above the auto-approve limit"))
+        if self.actions > 5:
+            ask.append(("VEL-01", "more than 5 actions in 10 minutes"))
+        fired = deny + ask
+        kind = "deny" if deny else "ask" if ask else "allow"
+        return Decision(req.request_id, kind, [r for r, _ in fired], [w for _, w in fired],
+                        self._token(req, plan) if kind == "allow" else None)
 
     def confirm(self, req, plan=None):
         return Decision(req.request_id, "allow", [], ["confirmed"], self._token(req, plan))
@@ -96,6 +103,37 @@ def test_csv_header_is_written_once(tmp_path):
     assert p.read_text().count("time,network") == 1
 
 
+def test_the_sixth_action_is_expected_to_trip_velocity():
+    sixth = evidence_run.SCENARIOS[5]
+    assert sixth.expect == {"ask"}
+    assert sixth.expected == "ask (VEL-01: sixth action within 10 minutes)"
+    assert evidence_run.SCENARIOS[0].expected == "allow"          # default label is the expect set
+    assert all(s.expect != {"allow"} for s in evidence_run.SCENARIOS[5:])
+
+
+def test_the_preview_lists_the_expected_decisions(monkeypatch, capsys):
+    monkeypatch.setenv("ACTIVE_NETWORK", "sepolia")
+    evidence_run.main([])
+    assert "expected: ask (VEL-01: sixth action within 10 minutes)" in capsys.readouterr().out
+
+
+def test_denied_rows_explain_why_velocity_is_listed(tmp_path, monkeypatch):
+    """Offline: a fake engine and the stand-in firewall; checks the CSV note only."""
+    import wallet_engine
+    from shared.types import SimResult, TxPlan
+    fake_plan = TxPlan(31337, "0x" + "1" * 40, "0x" + "2" * 40, 0, "0x", 60000, "approve(address,uint256)", {}, "x")
+    monkeypatch.setattr(wallet_engine, "plan", lambda req: fake_plan)
+    monkeypatch.setattr(wallet_engine, "simulate", lambda plan: SimResult(True, None, "0", None))
+    fw = StandInPolicy()
+    fw.actions = 10                                                  # already past the velocity limit
+    out = tmp_path / "tx.csv"
+    rows = evidence_run.run([evidence_run.SCENARIOS[6]], {"A": ALICE, "B": BOB}, fw,
+                            "0x" + "3" * 40, "local", out, confirm=lambda *a: False)
+    assert rows[0]["status"] == "denied" and rows[0]["rule_ids"] == "APR-01 VEL-01"
+    assert evidence_run.VEL_NOTE in rows[0]["note"]
+    assert evidence_run.VEL_NOTE in out.read_text()
+
+
 # ============================ live (local anvil) ============================
 
 @pytest.fixture
@@ -125,12 +163,13 @@ def _run(tmp_path, *extra, fw=None):
     return code, (list(csv.DictReader(out.open())) if out.exists() else [])
 
 
-def test_full_run_with_a_stand_in_firewall(live):
+def test_full_run_with_a_stand_in_firewall(live, capsys):
     w3, tmp = live
     from wallet_engine import chain, erc20
     token = erc20.token_contract(w3, chain.token_address())
     before = token.functions.balanceOf(ALICE).call()
     code, rows = _run(tmp, fw=StandInPolicy())
+    printed = capsys.readouterr().out
 
     assert code == 0
     assert len(rows) == 8
@@ -141,10 +180,15 @@ def test_full_run_with_a_stand_in_firewall(live):
         assert r["tx_hash"].startswith("0x") and len(r["tx_hash"]) == 66
         assert w3.eth.get_transaction_receipt(r["tx_hash"]).status == 1
     for r in denied:
-        assert r["tx_hash"] == "" and r["rule_ids"] in ("APR-01", "PRV-01")
-    assert {r["rule_ids"] for r in denied} == {"APR-01", "PRV-01"}
+        assert r["tx_hash"] == "" and r["rule_ids"].split()[-1] == "VEL-01"
+        assert evidence_run.VEL_NOTE in r["note"]
+    assert {r["rule_ids"].split()[0] for r in denied} == {"APR-01", "PRV-01"}
     big = next(r for r in rows if "needs a human confirm" in r["note"])
     assert big["decision"] == "ask" and "scripted" in big["note"]
+    sixth = rows[5]
+    assert sixth["decision"] == "ask" and sixth["rule_ids"] == "VEL-01" and sixth["status"] == "sent"
+    assert "UNEXPECTED" not in sixth["note"]
+    assert f"note: {evidence_run.VEL_NOTE}" in printed
     # the money really moved: 10 + (approve/revoke move none) + 1 to Alice
     assert token.functions.balanceOf(ALICE).call() == before + 11 * 10**18
     # the attacker address never received anything
