@@ -9,4 +9,6 @@ velocity:
 trusted_origins:
   - user_chat           # everything else is untrusted (PRV-01)
 chain_id: null          # set after the first deploy; read from the node, never guess
-allowlist: []           # add checksummed addresses here, e.g. a demo "Alice" and "Bob"
+allowlist:            # add checksummed addresses here, e.g. a demo "Alice" and "Bob"
+  - "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"   # Alice (Anvil account #1)
+  - "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"   # Bob (Anvil account #2)
