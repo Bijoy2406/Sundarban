@@ -149,7 +149,7 @@ python scripts/verify_audit.py
 
 The five E2E scenarios require a reachable local Anvil node on chain ID 31337 and a deployed TestUSD contract. If they are skipped, they have **not** demonstrated the live pipeline. Never remove the chain guard merely to force a pass.
 
-For on-chain evidence, follow the README instructions for wallet_engine/scripts/evidence_run.py and record transaction hashes, network, outcomes and audit evidence. The project context flags an unresolved submission question: confirm with the organizer whether Sepolia testnet hashes satisfy the competition's “real on-chain transaction hashes” requirement before presenting them as qualifying evidence.
+For on-chain evidence, follow the README instructions for wallet_engine/scripts/evidence_run.py and record transaction hashes, network, outcomes and audit evidence. The organizer confirmed that Sepolia testnet transaction hashes are accepted as execution evidence. The recorded run is in evidence/tx_hashes.csv, evidence/audit_sepolia.jsonl and evidence/audit_head_sepolia.json.
 
 ## 9. Security boundaries and known limitations
 
@@ -159,7 +159,7 @@ For on-chain evidence, follow the README instructions for wallet_engine/scripts/
 - A separate confirmation action is required for ask; chat text must never simulate a human confirmation.
 - A local test suite that uses mocks verifies behavior at those seams, not the live blockchain.
 - E2E scenarios are only verified when they execute against the configured local chain and token contract.
-- Windows audit-locking tests have failed in the reported development environment due to inter-process locking behavior and the missing fcntl module. Treat this as an outstanding platform-specific defect, not a passing test.
+- The Windows audit-log corruption (no fcntl module) was fixed in issue #17 with a cross-process lock (msvcrt on Windows, a portable lock file elsewhere). tests/test_audit_locking.py forces both code paths with several writer processes; re-run the suite on a real Windows machine before the final submission.
 - The team must attach its final security self-assessment and actual test/evidence results. Do not claim an unrecorded test, transaction, review or submission happened.
 
 ## 10. Submission evidence checklist

@@ -59,7 +59,7 @@
 - Test suite: [insert current executed pass/skip/fail counts].
 - Red-team results: [insert Person 2's verified block rate and false-block rate].
 - Chain evidence: [insert verified hashes and network].
-- Known limitations: Windows audit-locking failure; live E2E cases are not verified when skipped; testnet evidence acceptance needs organizer confirmation.
+- Known limitations: live E2E cases are not verified when skipped; the demo runs on test networks only (local Anvil and Sepolia).
 
 **Speaker note:** Never describe skipped tests as passed. Don't invent red-team metrics or hashes.
 

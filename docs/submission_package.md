@@ -3,7 +3,7 @@
 **Deadline from project context:** 20 October 2026, 23:59 Beijing time (UTC+8). Internal target: send by noon Beijing time on 20 October.
 
 **Recipient from project context:** wangyr@pbcsf.tsinghua.edu.cn  
-**Important open question:** project context says to ask the organizer whether Sepolia testnet transaction hashes satisfy the requirement for “real on-chain transaction hashes.” Confirm the answer before representing Sepolia evidence as qualifying.
+**Sepolia evidence:** the organizer confirmed that Sepolia testnet transaction hashes are accepted (see evidence/tx_hashes.csv).
 
 ## Required package
 
@@ -14,7 +14,7 @@
 - [ ] **Demo video:** exported video, 5 minutes maximum. Use demo_video_script.md. No keys or secrets may appear on screen.
 - [ ] **Execution evidence:** real recorded transaction hashes, network names, relevant outcomes and audit evidence. Keep a clear distinction between local Anvil evidence and public testnet evidence.
 - [ ] **Test results:** record the exact command, date, pass/skip/fail counts and platform. Skipped E2E tests are not passes.
-- [ ] **Organizer response:** archive the answer about accepted networks/hash evidence.
+- [x] **Organizer response:** Sepolia testnet hashes are accepted; keep the organizer's reply with the submission records.
 - [ ] **Final review:** check that all attachments open and the repository URL is accessible.
 - [ ] **Email sent:** mark only after the email has actually been sent and retain the sent-message record.
 
@@ -39,8 +39,6 @@ Sentinel Wallet demonstrates an AI-assisted ERC-20 wallet in which a determinist
 
 All demo transactions use test assets on local Anvil and/or the explicitly identified test network. We have not used mainnet or real funds.
 
-Could you please confirm whether Sepolia testnet transaction hashes satisfy the competition's on-chain evidence requirement?
-
 Thank you for your time and consideration.
 
 Best regards,  
@@ -49,7 +47,7 @@ FinTechathon 2026 — International Track, Topic F
 
 ---
 
-**Do not send this draft until every bracketed item is resolved.** Remove the question about Sepolia if the organizer has already answered it, and make sure the claims match the evidence attached.
+**Do not send this draft until every bracketed item is resolved.** Make sure the claims match the evidence attached.
 
 ## Final handoff checklist (day of submission)
 

@@ -454,7 +454,9 @@ function AttackReplayCard({ onExecuted }) {
             <section className="replay-panel protected-panel">
               <h3>Sentinel protected agent</h3>
               <div className={`decision ${result.protected.status === "blocked" ? "deny" : "ask"}`}>
-                <strong>{result.protected.status === "blocked" ? "Firewall blocked the attack" : "Request needs investigation"}</strong>
+                <strong>{result.protected.status !== "blocked" ? "Request needs investigation"
+                  : result.protected.decision ? "Firewall blocked the attack"
+                  : "Refused before the firewall: no safe action found in untrusted text"}</strong>
                 <ul>{(result.protected.reasons || []).map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul>
               </div>
               {result.protected.decision?.rule_ids?.length > 0 && <p className="muted small">Rules: {result.protected.decision.rule_ids.join(", ")}</p>}

@@ -28,7 +28,7 @@ The repository now contains the main wallet engine, firewall, agent, API, and Re
 | Naive agent + drainer | Intentionally unsafe demo path, restricted to local Anvil chain ID `31337` |
 | Backend + UI | FastAPI endpoints and React/Vite wallet, confirmation, audit and attack-replay surfaces |
 
-Check the actual test output from your environment before making claims about coverage. The current full-suite history includes Windows audit-locking failures; see [Testing and known limitations](docs/technical_overview.md#testing-and-known-limitations).
+Check the actual test output from your environment before making claims about coverage. The Windows audit-log corruption reported earlier was fixed (issue #17, cross-process lock); `tests/test_audit_locking.py` forces the Windows and portable lock paths with several writer processes. See [Testing and known limitations](docs/technical_overview.md#testing-and-known-limitations).
 
 ---
 
@@ -193,7 +193,7 @@ Expected: `"backend":"ok"`, `"connected":true`, `"chain_id":31337`, `"token_depl
 | ✓ Backend, ✓ Chain: local (31337), ✓ TestUSD deployed | backend, anvil and token are fine |
 | ✗ LLM configured | normal until you fill `LLM_MODEL` and `LLM_API_KEY` |
 | Wallet card: ETH ≈ 10000, TUSD 1000000 | balances are read live from the chain |
-| **Preview** (transfer 10 to the prefilled address) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and a green **ALLOW** card tagged **STUB** |
+| **Preview** (transfer 10 to the prefilled address) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and the firewall decision (an empty allowlist gives an amber **ASK** card; with Alice on the allowlist it is a green **ALLOW**) |
 | **Test connection** | with LLM settings filled: "✓ <model> replied OK in … ms" |
 
 The preview uses the transaction planner and simulation result. Execution is handled by the server API, which re-runs plan → simulate → firewall evaluation; the browser cannot authorize a transaction by sending its own decision. An `ask` result requires a separate confirmation action.
@@ -318,8 +318,11 @@ python -m pytest -q
 | `tests/test_drainer.py` | Local-only drainer guard and behavior | Mocked/local-chain fixtures |
 | `tests/test_policy.py` | Deterministic firewall policy decisions | No |
 | `tests/test_simulate_execute.py` | Simulation, transaction binding and execution guards | Some tests require local chain |
-| `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No; platform-dependent locking |
+| `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No |
+| `tests/test_attack_replay.py` | Attack-replay API: feed items, both agents, local-only guard | No (mocked) |
+| `tests/test_e2e.py` | The five protected-agent scenarios (allow, ask + confirm once, PRV-01, APR-01, KIL-01) | Yes, local Anvil |
+| `tests/test_redteam_runner.py` | Red-team runner (40 attacks + 15 benign = 55/55) and its metrics | Offline; one live test needs Anvil |
 
-The attack-replay and five-scenario E2E suites are tracked in the feature branches/issues. Confirm that their PRs are merged into the checkout before invoking those test paths.
+The full list of every test file, with test counts, is in [README_section_12_test_cases.md](README_section_12_test_cases.md). The red-team results are in [evidence/redteam_report.md](evidence/redteam_report.md) (`python -m firewall.redteam.run`).
 
 A skipped test did not pass; it means its prerequisite was unavailable. The E2E scenarios are not verified until they execute against the required local chain.
