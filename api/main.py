@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 import firewall
 import wallet_engine
 from agent import llm
-from agent import handle_message as handle_agent_message, confirm_pending as confirm_agent_pending
+from agent import handle_message as handle_agent_message, confirm_pending as confirm_agent_pending, has_pending_confirmation
 from shared.types import ActionRequest
 from wallet_engine import chain
 from firewall import audit, state
@@ -249,6 +249,8 @@ def confirm(body: ConfirmRequest):
     req = _take_pending(body.request_id)
     if req is None:
         # Chat-originated ask requests are remembered by the protected agent, not this endpoint's plan flow.
+        if not has_pending_confirmation(body.request_id):
+            raise HTTPException(status_code=404, detail="Confirmation is missing, expired, or already used.")
         reply = confirm_agent_pending(body.request_id)
         if reply.decision is not None:
             result = asdict(reply)
