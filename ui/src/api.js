@@ -20,3 +20,8 @@ export const confirmPlan = (request_id) => request("/api/confirm", {
   method: "POST", body: JSON.stringify({ request_id }),
 });
 export const testLlm = () => request("/api/llm/test", { method: "POST" });
+
+export const getAttackFeed = () => request("/api/feed");
+export const runAttackReplay = (attack_id) => request("/api/attack-replay", {
+  method: "POST", body: JSON.stringify({ attack_id }),
+});
