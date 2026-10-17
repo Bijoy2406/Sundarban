@@ -25,8 +25,10 @@ from pydantic import BaseModel, Field
 import firewall
 import wallet_engine
 from agent import llm
+from agent import handle_message as handle_agent_message, confirm_pending as confirm_agent_pending
 from shared.types import ActionRequest
 from wallet_engine import chain
+from firewall import audit, state
 
 app = FastAPI(title="Sentinel Wallet API", version="0.2.0")
 _CONFIRM_TTL_SECONDS = 600
@@ -123,6 +125,57 @@ def _execute_result(req, tx_plan, decision):
                       "explorer_url": _explorer_url(tx_hash), "executed": True})
 
 
+@app.post("/api/chat")
+def chat(body: ChatRequest):
+    """Send a user-authored message through the protected agent; never accept a decision from the client."""
+    try:
+        reply = handle_agent_message(body.message, origin="user_chat")
+        result = asdict(reply)
+        if reply.decision is not None and reply.decision.decision == "ask":
+            result["status"] = "awaiting_confirmation"
+            result["request_id"] = reply.decision.request_id
+        elif reply.decision is not None and reply.decision.decision == "deny":
+            result["status"] = "denied"
+        elif reply.tx_hash:
+            result["status"] = "executed"
+            result["explorer_url"] = _explorer_url(reply.tx_hash)
+        else:
+            result["status"] = "blocked" if reply.blocked else "completed"
+        return _jsonable(result)
+    except Exception:
+        raise HTTPException(status_code=503, detail="The agent could not safely process that message. Please try again.") from None
+
+
+@app.get("/api/security")
+def security_status():
+    try:
+        return {"kill_switch_on": state.kill_switch_on()}
+    except Exception:
+        return {"kill_switch_on": True, "warning": "Kill-switch state could not be verified; wallet treated as frozen."}
+
+
+@app.post("/api/kill-switch")
+def set_kill_switch(body: KillSwitchRequest):
+    try:
+        state.set_kill_switch(body.enabled)
+        return {"kill_switch_on": state.kill_switch_on()}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not safely update the kill switch. The wallet remains frozen if state is uncertain.") from None
+
+
+@app.get("/api/audit")
+def audit_log(limit: int = 50):
+    if not 1 <= limit <= 200:
+        raise HTTPException(status_code=422, detail="Limit must be between 1 and 200.")
+    try:
+        check = audit.check()
+        entries = audit.tail(limit)
+        return {"entries": entries, "integrity": {"ok": check.ok, "count": check.entries,
+                "head": check.head, "reason": check.reason, "line": check.line}}
+    except Exception:
+        raise HTTPException(status_code=503, detail="The audit log could not be read safely.") from None
+
+
 @app.get("/api/health")
 def health():
     return {"backend": "ok", "chain": chain.status(), "llm": llm.config_status()}
@@ -146,6 +199,14 @@ class PlanRequest(BaseModel):
 
 class ConfirmRequest(BaseModel):
     request_id: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class KillSwitchRequest(BaseModel):
+    enabled: bool
 
 
 @app.post("/api/plan")
@@ -187,6 +248,16 @@ def confirm(body: ConfirmRequest):
     """Confirm only a server-remembered ask. Browser cannot supply a plan or decision."""
     req = _take_pending(body.request_id)
     if req is None:
+        # Chat-originated ask requests are remembered by the protected agent, not this endpoint's plan flow.
+        reply = confirm_agent_pending(body.request_id)
+        if reply.decision is not None:
+            result = asdict(reply)
+            if reply.tx_hash:
+                result["status"] = "executed"
+                result["explorer_url"] = _explorer_url(reply.tx_hash)
+            else:
+                result["status"] = "denied" if reply.decision.decision == "deny" else "blocked"
+            return _jsonable(result)
         raise HTTPException(status_code=404, detail="Confirmation is missing, expired, or already used.")
     try:
         tx_plan = wallet_engine.plan(req)
