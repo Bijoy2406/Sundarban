@@ -29,3 +29,8 @@ export const setKillSwitch = (enabled) => request("/api/kill-switch", {
   method: "POST", body: JSON.stringify({ enabled }),
 });
 export const getAudit = (limit = 50) => request(`/api/audit?limit=${limit}`);
+
+export const getAttackFeed = () => request("/api/feed");
+export const runAttackReplay = (attack_id) => request("/api/attack-replay", {
+  method: "POST", body: JSON.stringify({ attack_id }),
+});

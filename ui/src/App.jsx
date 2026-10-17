@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm, sendChat, getSecurity, setKillSwitch, getAudit } from "./api.js";
+import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm, sendChat, getSecurity, setKillSwitch, getAudit, getAttackFeed, runAttackReplay } from "./api.js";
 
 // Anvil's public test account #1, handy as a demo recipient on the LOCAL chain only.
 const DEMO_RECIPIENT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -22,6 +22,7 @@ export default function App() {
       <SecurityCard />
       <AuditCard />
       <PlanCard onExecuted={onExecuted} />
+      <AttackReplayCard onExecuted={onExecuted} />
     </div>
   );
 }
@@ -366,4 +367,102 @@ function AuditCard() {
       </details>)}
     </div>}
   </section>;
+}
+
+function AttackReplayCard({ onExecuted }) {
+  const [attacks, setAttacks] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+  const [loadingFeed, setLoadingFeed] = useState(true);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    getAttackFeed()
+      .then((data) => {
+        const items = (data.items || []).filter((item) => item.attack);
+        setAttacks(items);
+        setSelectedId(items[0]?.id || "");
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoadingFeed(false));
+  }, []);
+
+  const run = async () => {
+    setError("");
+    setResult(null);
+    setRunning(true);
+    try {
+      const replay = await runAttackReplay(selectedId);
+      setResult(replay);
+      onExecuted();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <section className="card attack-replay">
+      <div className="card-head">
+        <h2>Attack replay</h2>
+        <span className="tag">LOCAL ANVIL ONLY</span>
+      </div>
+      <p className="muted small">
+        Run the selected synthetic feed attack against both agents. The naive agent intentionally bypasses
+        firewall policy; the protected agent evaluates the same payload with its source marked untrusted.
+        Test tokens only. This endpoint refuses non-local chains.
+      </p>
+      <div className="form">
+        <label className="wide">Choose an attack from the feed
+          <select value={selectedId} onChange={(event) => { setSelectedId(event.target.value); setResult(null); setError(""); }} disabled={loadingFeed || running}>
+            {attacks.map((item) => <option key={item.id} value={item.id}>{item.title} · {item.source === "nft_metadata" ? "NFT metadata" : "X reply"}</option>)}
+          </select>
+        </label>
+        <button onClick={run} disabled={running || loadingFeed || !selectedId}>
+          {loadingFeed ? "Loading feed…" : running ? "Running both agents…" : "Run attack replay"}
+        </button>
+      </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      {attacks.find((item) => item.id === selectedId) && (
+        <div className="attack-payload">
+          <strong>Selected payload</strong>
+          <p>{attacks.find((item) => item.id === selectedId).text}</p>
+        </div>
+      )}
+      {result && (
+        <>
+          <p className="muted small">Attack: {result.attack.title} · origin assigned by backend: <code>{result.attack.origin}</code></p>
+          <div className="replay-columns">
+            <section className="replay-panel naive-panel">
+              <h3>Naive agent</h3>
+              <div className={`decision ${result.naive.status === "drained" ? "deny" : "ask"}`}>
+                <strong>{result.naive.status === "drained" ? "Attack succeeded — test funds lost" : "Naive execution did not complete"}</strong>
+                <p>{result.naive.reason}</p>
+              </div>
+              {result.naive.tx_hash && <p>Approval transaction: <code className="break">{result.naive.tx_hash}</code></p>}
+              {result.naive.drain_tx_hash && <p>Drain transaction: <code className="break">{result.naive.drain_tx_hash}</code></p>}
+              {result.naive.balance_before !== null && (
+                <table><tbody>
+                  <tr><td>Victim balance before</td><td className="num">{result.naive.balance_before} TUSD</td></tr>
+                  <tr><td>Victim balance after</td><td className="num">{result.naive.balance_after} TUSD</td></tr>
+                  <tr><td>Balance lost</td><td className="num"><strong>{result.naive.balance_drop} TUSD</strong></td></tr>
+                </tbody></table>
+              )}
+            </section>
+            <section className="replay-panel protected-panel">
+              <h3>Sentinel protected agent</h3>
+              <div className={`decision ${result.protected.status === "blocked" ? "deny" : "ask"}`}>
+                <strong>{result.protected.status === "blocked" ? "Firewall blocked the attack" : "Request needs investigation"}</strong>
+                <ul>{(result.protected.reasons || []).map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul>
+              </div>
+              {result.protected.decision?.rule_ids?.length > 0 && <p className="muted small">Rules: {result.protected.decision.rule_ids.join(", ")}</p>}
+              <p>{result.protected.text}</p>
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  );
 }
