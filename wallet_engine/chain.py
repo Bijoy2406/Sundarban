@@ -85,19 +85,54 @@ def _deploy_block() -> int:
     return 0
 
 
+def _candidate_spenders() -> list:
+    """Addresses worth checking when the event scan is not possible: the allowlist and the local attacker.
+
+    These are the only spenders our own system ever talks to, so an approval made through it is found.
+    """
+    found = []
+    try:
+        import yaml
+        rules = Path(os.getenv("RULES_PATH") or ROOT / "firewall" / "rules.yaml")
+        found += [str(a) for a in (yaml.safe_load(rules.read_text(encoding="utf-8")) or {}).get("allowlist") or []]
+    except Exception:
+        pass                                   # no rules file: fewer candidates, never a crash
+    key = os.getenv("ATTACKER_PRIVATE_KEY")
+    if key:
+        try:
+            found.append(Web3().eth.account.from_key(key).address)
+        except Exception:
+            pass
+    unique = {}
+    for address in found:
+        if Web3.is_address(address):
+            unique[Web3.to_checksum_address(address)] = None
+    return sorted(unique)
+
+
 def approvals(w3: Web3 | None = None) -> list:
     """Every spender this wallet has approved that still has a non-zero allowance.
 
     Found by scanning the token's Approval events for this owner, then reading the
     current allowance (events alone can be stale).
+
+    Free public RPC plans (for example Alchemy's free tier on Sepolia) refuse a log search over more than
+    a few blocks. On a public network, when the scan is refused, the allowance is read for the known
+    spenders instead (see _candidate_spenders). On the local chain the scan never fails, and an error is raised.
     """
     w3 = w3 or get_web3()
     owner = wallet_address()
     token = token_contract(w3, token_address())
     decimals = token.functions.decimals().call()
-    events = token.events.Approval().get_logs(from_block=_deploy_block(), argument_filters={"owner": owner})
+    try:
+        events = token.events.Approval().get_logs(from_block=_deploy_block(), argument_filters={"owner": owner})
+        spenders = sorted({e["args"]["spender"] for e in events})
+    except Exception:
+        if network() == "local":
+            raise
+        spenders = _candidate_spenders()
     result = []
-    for spender in sorted({e["args"]["spender"] for e in events}):
+    for spender in spenders:
         raw = token.functions.allowance(owner, spender).call()
         if raw > 0:
             result.append({"token": token.address, "spender": spender, "allowance": from_base_units(raw, decimals)})
