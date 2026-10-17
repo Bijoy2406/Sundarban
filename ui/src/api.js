@@ -20,3 +20,12 @@ export const confirmPlan = (request_id) => request("/api/confirm", {
   method: "POST", body: JSON.stringify({ request_id }),
 });
 export const testLlm = () => request("/api/llm/test", { method: "POST" });
+
+export const sendChat = (message) => request("/api/chat", {
+  method: "POST", body: JSON.stringify({ message }),
+});
+export const getSecurity = () => request("/api/security");
+export const setKillSwitch = (enabled) => request("/api/kill-switch", {
+  method: "POST", body: JSON.stringify({ enabled }),
+});
+export const getAudit = (limit = 50) => request(`/api/audit?limit=${limit}`);
