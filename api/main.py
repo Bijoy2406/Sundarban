@@ -125,6 +125,26 @@ def _execute_result(req, tx_plan, decision):
                       "explorer_url": _explorer_url(tx_hash), "executed": True})
 
 
+class PlanRequest(BaseModel):
+    action: Literal["transfer", "approve", "revoke"]
+    to: str = Field(..., min_length=1, description="Recipient or spender")
+    amount: str = "0"
+    unlimited: bool = False
+
+
+class ConfirmRequest(BaseModel):
+    request_id: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class KillSwitchRequest(BaseModel):
+    enabled: bool
+
+
+
 @app.post("/api/chat")
 def chat(body: ChatRequest):
     """Send a user-authored message through the protected agent; never accept a decision from the client."""
@@ -188,25 +208,6 @@ def wallet():
                 "balances": wallet_engine.balances(), "approvals": wallet_engine.approvals()}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot read wallet: {exc}")
-
-
-class PlanRequest(BaseModel):
-    action: Literal["transfer", "approve", "revoke"]
-    to: str = Field(..., min_length=1, description="Recipient or spender")
-    amount: str = "0"
-    unlimited: bool = False
-
-
-class ConfirmRequest(BaseModel):
-    request_id: str = Field(..., min_length=1)
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
-
-
-class KillSwitchRequest(BaseModel):
-    enabled: bool
 
 
 @app.post("/api/plan")
