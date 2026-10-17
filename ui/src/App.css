@@ -54,3 +54,27 @@ input, select { border: 1px solid var(--line); border-radius: 6px; padding: 7px 
 .tag { margin-left: 8px; font-size: 12px; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 .error { color: var(--bad); }
 .ok-text { color: var(--ok); }
+
+
+/* Wallet UI additions: chat, security controls, and audit trail. */
+.chat-log { display: grid; gap: 12px; max-height: 420px; overflow-y: auto; margin: 12px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfc; }
+.chat-message { max-width: 92%; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-wrap: anywhere; }
+.chat-message.user { justify-self: end; background: #eef2ff; }
+.chat-message.agent { justify-self: start; background: var(--card); }
+.chat-message p { margin: 6px 0; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.switch-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; cursor: pointer; }
+.switch-row input { width: 18px; height: 18px; accent-color: var(--bad); }
+.danger-text { color: var(--bad); font-weight: 700; }
+.audit-list { display: grid; gap: 8px; max-height: 440px; overflow-y: auto; }
+.audit-entry { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: #fbfbfc; }
+.audit-entry summary { cursor: pointer; overflow-wrap: anywhere; font-size: 13px; }
+.audit-entry summary span:first-child { font-weight: 700; margin-right: 6px; }
+.audit-entry pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: #f0f2f5; border-radius: 4px; padding: 8px; }
+@media (max-width: 520px) {
+  .chat-form { flex-direction: column; }
+  .chat-form button { align-self: flex-start; }
+  .chat-message { max-width: 100%; }
+}
