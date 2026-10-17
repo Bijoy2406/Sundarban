@@ -301,8 +301,9 @@ python -m pytest tests/test_feed.py -v
 python -m pytest tests/test_intents.py -v
 python -m pytest tests/test_agent.py -v
 python -m pytest tests/test_naive_agent.py -v
-python -m pytest tests/test_attack_replay.py -v
-python -m pytest tests/test_e2e.py -v
+python -m pytest tests/test_drainer.py -v
+python -m pytest tests/test_policy.py -v
+python -m pytest tests/test_simulate_execute.py -v
 python -m pytest -q
 ```
 
@@ -314,8 +315,11 @@ python -m pytest -q
 | `tests/test_naive_agent.py` | Naive-agent chain guard and deliberately unprotected execution path | Mocked |
 | `tests/test_feed.py` | Synthetic feed size, attack categories and trusted origin mapping | No |
 | `tests/test_api.py` | API endpoints, server-side decision enforcement and friendly errors | No (mocked) |
-| `tests/test_attack_replay.py` | Attack-replay API behavior and local-network guard | No (mocked) |
-| `tests/test_e2e.py` | Five protected-agent scenarios against Anvil and deployed TestUSD | **Yes: Anvil chain ID 31337 and deployed token** |
+| `tests/test_drainer.py` | Local-only drainer guard and behavior | Mocked/local-chain fixtures |
+| `tests/test_policy.py` | Deterministic firewall policy decisions | No |
+| `tests/test_simulate_execute.py` | Simulation, transaction binding and execution guards | Some tests require local chain |
 | `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No; platform-dependent locking |
+
+The attack-replay and five-scenario E2E suites are tracked in the feature branches/issues. Confirm that their PRs are merged into the checkout before invoking those test paths.
 
 A skipped test did not pass; it means its prerequisite was unavailable. The E2E scenarios are not verified until they execute against the required local chain.
