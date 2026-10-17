@@ -1,4 +1,4 @@
-# Sentinel Wallet
+# Sundarban
 
 An **AI wallet agent that can send tokens on-chain but cannot be tricked into it.**
 Every action passes a deterministic **Firewall** (plain Python rules, no AI) that answers
@@ -10,7 +10,7 @@ Every action passes a deterministic **Firewall** (plain Python rules, no AI) tha
 **Why:** in May 2026 an encoded public reply on X plus a gifted NFT made an AI agent's wallet send
 about $150K of tokens. No key was stolen; the AI simply trusted text it should not have.
 Our demo replays that attack against a naive agent (it loses test funds on a local chain) and
-against Sentinel Wallet (blocked, with the reason).
+against Sundarban (blocked, with the reason).
 
 ---
 
@@ -106,8 +106,8 @@ echo 'export PATH="$PATH:$HOME/.foundry/bin"' >> ~/.bashrc && source ~/.bashrc
 ## 2. First-time setup
 
 ```bash
-git clone https://github.com/Bijoy2406/Sentinel-Wallet.git
-cd Sentinel-Wallet
+git clone https://github.com/Bijoy2406/Sundarban.git
+cd Sundarban
 
 # Python (keep the virtual environment OUTSIDE the repo)
 python3 -m venv ~/.venvs/sentinel

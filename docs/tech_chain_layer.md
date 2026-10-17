@@ -1,11 +1,11 @@
 # Technical documentation: the chain layer (`wallet_engine`)
 
-*Sentinel Wallet · FinTechathon 2026 International Track · Topic F (Agent Wallet)*
+*Sundarban · FinTechathon 2026 International Track · Topic F (Agent Wallet)*
 *Section owner: Person 1 (chain and wallet engine)*
 
 ## 1. Purpose
 
-The chain layer is the part of Sentinel Wallet that touches the blockchain. It answers three
+The chain layer is the part of Sundarban that touches the blockchain. It answers three
 questions truthfully and nothing else:
 
 1. **What does the wallet hold?** (`balances`, `approvals`)

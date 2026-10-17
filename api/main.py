@@ -1,4 +1,4 @@
-"""Sentinel Wallet REST API with server-authoritative execution and confirmation.
+"""Sundarban REST API with server-authoritative execution and confirmation.
 
 Run from the repo root:   uvicorn api.main:app --reload --port 8000
 Docs (auto-generated):    http://127.0.0.1:8000/docs
@@ -34,7 +34,7 @@ from shared.types import ActionRequest
 from wallet_engine import chain
 from firewall import audit, state
 
-app = FastAPI(title="Sentinel Wallet API", version="0.2.0")
+app = FastAPI(title="Sundarban API", version="0.2.0")
 _CONFIRM_TTL_SECONDS = 600
 _MAX_PENDING_CONFIRMATIONS = 1000
 _PENDING_LOCK = threading.RLock()

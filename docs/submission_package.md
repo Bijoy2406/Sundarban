@@ -21,16 +21,16 @@
 ## Final email draft
 
 **To:** wangyr@pbcsf.tsinghua.edu.cn  
-**Subject:** FinTechathon 2026 — Sentinel Wallet Submission (International Track, Topic F)
+**Subject:** FinTechathon 2026 — Sundarban Submission (International Track, Topic F)
 
 Dear Organizing Team,
 
-Please find our Sentinel Wallet submission for FinTechathon 2026, International Track, Topic F (Agent Wallet).
+Please find our Sundarban submission for FinTechathon 2026, International Track, Topic F (Agent Wallet).
 
-Sentinel Wallet demonstrates an AI-assisted ERC-20 wallet in which a deterministic firewall—not the LLM—decides whether an action is allowed, requires explicit human confirmation, or must be denied.
+Sundarban demonstrates an AI-assisted ERC-20 wallet in which a deterministic firewall—not the LLM—decides whether an action is allowed, requires explicit human confirmation, or must be denied.
 
 **Submission materials**
-1. Source code and setup instructions: https://github.com/Bijoy2406/Sentinel-Wallet
+1. Source code and setup instructions: https://github.com/Bijoy2406/Sundarban
 2. Technical document: [attach reviewed PDF]
 3. Presentation deck (10 minutes or less): [attach exported deck]
 4. Demo video (5 minutes or less): [attach exported video or provide approved link]
@@ -42,7 +42,7 @@ All demo transactions use test assets on local Anvil and/or the explicitly ident
 Thank you for your time and consideration.
 
 Best regards,  
-Sentinel Wallet Team  
+Team Sundarban  
 FinTechathon 2026 — International Track, Topic F
 
 ---

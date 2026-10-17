@@ -1,11 +1,11 @@
-# Sentinel Wallet — Demo Video Script (target: 4:30)
+# Sundarban — Demo Video Script (target: 4:30)
 
 **Maximum:** 5 minutes. This is a recording script; the video has not been recorded by committing this file. Use a clean browser profile and a local Anvil chain with test tokens.
 
 ## 0:00–0:20 — Title and setup
 **On screen:** Wallet UI title; status indicator showing local chain 31337 and TestUSD deployed. Avoid showing terminal windows containing environment variables.
 
-**Narration:** “Sentinel Wallet separates language understanding from transaction authorization. This demo uses a local development chain and test tokens only.”
+**Narration:** “Sundarban separates language understanding from transaction authorization. This demo uses a local development chain and test tokens only.”
 
 ## 0:20–1:05 — Legitimate transfer
 **On screen:** Enter the approved 10 TUSD transfer. Show the preview and simulation. Click Execute only if the server-side decision is allow. Wait for the mined receipt, then show the returned hash and updated balance.
@@ -41,7 +41,7 @@
 ## 4:05–4:30 — Close
 **On screen:** Final wallet screen and repository URL.
 
-**Narration:** “Sentinel Wallet keeps authorization in deterministic code, requires human confirmation when needed, and makes decisions inspectable. All transactions in this demo use test assets.”
+**Narration:** “Sundarban keeps authorization in deterministic code, requires human confirmation when needed, and makes decisions inspectable. All transactions in this demo use test assets.”
 
 ## Recording checklist
 - [ ] Recorded duration is 4:30 or less, never over 5 minutes.

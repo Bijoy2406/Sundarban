@@ -1,4 +1,4 @@
-# Sentinel Wallet (Wallet Firewall): project context for AI assistants
+# Sundarban (Wallet Firewall): project context for AI assistants
 
 Read this first. It replaces the conversation history that earlier sessions had.
 
@@ -67,7 +67,7 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 ## Environment notes
 - This repo lives on an **NTFS drive** (`/run/media/salman/FCB8237BB8233414/wallet`). Keep the Python venv OFF it
   (e.g. `~/.venvs/sentinel`). `core.fileMode` is set to false.
-- GitHub: https://github.com/Bijoy2406/Sentinel-Wallet (public). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
+- GitHub: https://github.com/Bijoy2406/Sundarban (public). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
 
 ## Status (update this section as work lands)
 - [x] Skeleton, shared types, stubs, rules.yaml, contract test (3 passing)

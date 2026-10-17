@@ -1,13 +1,13 @@
-# Sentinel Wallet — Technical Overview
+# Sundarban — Technical Overview
 
 **Competition:** FinTechathon 2026, International Track, Topic F (Agent Wallet)  
-**Repository:** https://github.com/Bijoy2406/Sentinel-Wallet
+**Repository:** https://github.com/Bijoy2406/Sundarban
 
 > **Safety boundary:** test tokens only. Use local Anvil (chain ID 31337) and, where approved, Sepolia. Never use mainnet or a wallet containing real funds.
 
 ## 1. Problem and design goal
 
-An LLM agent can encounter malicious instructions in chat, public posts, NFT metadata, or tool output. Such text may attempt to override policy, impersonate an administrator, or induce an unsafe token approval. Sentinel Wallet treats the LLM as an intent extractor—not as an authorization system.
+An LLM agent can encounter malicious instructions in chat, public posts, NFT metadata, or tool output. Such text may attempt to override policy, impersonate an administrator, or induce an unsafe token approval. Sundarban treats the LLM as an intent extractor—not as an authorization system.
 
 The central rule is: **permission never comes from text**. Trusted application code sets request provenance. The firewall evaluates the transaction request and simulation using deterministic rules. A high-risk action can be denied; an action that requires a human decision remains pending until a separate confirmation step succeeds.
 

@@ -1,9 +1,9 @@
-# Sentinel Wallet — Presentation Outline (target: 8–9 minutes)
+# Sundarban — Presentation Outline (target: 8–9 minutes)
 
 **Format:** 8 slides, English, 16:9. Keep the final exported deck at or below 10 minutes. This is a slide-content outline, not an exported presentation file. Replace bracketed evidence placeholders only after verification.
 
 ## Slide 1 — Title and one-sentence claim (0:00–0:35)
-**Sentinel Wallet: An AI wallet agent that cannot authorize itself**
+**Sundarban: An AI wallet agent that cannot authorize itself**
 - FinTechathon 2026 · International Track · Topic F (Agent Wallet)
 - Team and repository URL
 - Claim: LLM extracts intent; deterministic firewall owns permission.

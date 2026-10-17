@@ -10,7 +10,7 @@ export default function App() {
   return (
     <div className="page">
       <header>
-        <h1>Sentinel Wallet</h1>
+        <h1>Sundarban</h1>
         <p className="muted">Test tokens only · never use mainnet or real funds</p>
       </header>
       <StatusBar />
@@ -270,12 +270,12 @@ function ChatCard({ onExecuted }) {
     }
   };
   return <section className="card">
-    <h2>Chat with Sentinel</h2>
+    <h2>Chat with Sundarban</h2>
     <p className="muted small">The agent can interpret requests, but only the server-side firewall decides whether a transaction is allowed.</p>
     <div className="chat-log" aria-live="polite">
       {items.length === 0 && <p className="muted small">Try: “Send 10 TUSD to 0x…” Nothing is sent until the protected workflow permits it.</p>}
       {items.map((item, index) => <div className={`chat-message ${item.role}`} key={index}>
-        <strong>{item.role === "user" ? "You" : "Sentinel"}</strong>
+        <strong>{item.role === "user" ? "You" : "Sundarban"}</strong>
         <p>{item.text}</p>
         {item.reply?.decision && <DecisionCard decision={item.reply.decision} />}
         {item.reply?.tx_hash && <p className="small">Transaction: {item.reply.explorer_url
@@ -286,7 +286,7 @@ function ChatCard({ onExecuted }) {
     </div>
     <form className="chat-form" onSubmit={send}>
       <label className="sr-only" htmlFor="agent-message">Message the wallet agent</label>
-      <input id="agent-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask Sentinel to transfer or manage a token…" maxLength={4000} />
+      <input id="agent-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask Sundarban to transfer or manage a token…" maxLength={4000} />
       <button type="submit" disabled={busy || !message.trim()}>{busy ? "Working…" : "Send"}</button>
     </form>
     {error && <p className="error" role="alert">{error}</p>}
@@ -452,7 +452,7 @@ function AttackReplayCard({ onExecuted }) {
               )}
             </section>
             <section className="replay-panel protected-panel">
-              <h3>Sentinel protected agent</h3>
+              <h3>Sundarban protected agent</h3>
               <div className={`decision ${result.protected.status === "blocked" ? "deny" : "ask"}`}>
                 <strong>{result.protected.status !== "blocked" ? "Request needs investigation"
                   : result.protected.decision ? "Firewall blocked the attack"
