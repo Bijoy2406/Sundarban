@@ -25,6 +25,10 @@ from pydantic import BaseModel, Field
 import firewall
 import wallet_engine
 from agent import llm
+from agent import handle_message as protected_handle_message
+from agent import naive_agent
+from agent.feed import get_feed_item, get_feed_items
+from wallet_engine.attacks import drainer
 from shared.types import ActionRequest
 from wallet_engine import chain
 
@@ -148,6 +152,10 @@ class ConfirmRequest(BaseModel):
     request_id: str = Field(..., min_length=1)
 
 
+class AttackReplayRequest(BaseModel):
+    attack_id: str = Field(..., min_length=1, max_length=80)
+
+
 @app.post("/api/plan")
 def plan(body: PlanRequest):
     """Preview only. Nothing is sent, nothing is counted, nothing is remembered.
@@ -219,3 +227,96 @@ def llm_status():
 @app.post("/api/llm/test")
 def llm_test():
     return llm.test_connection()
+
+
+@app.get("/api/feed")
+def public_feed():
+    """Return the fixed synthetic feed; the UI can select only items marked as attacks."""
+    return {"items": [asdict(item) | {"origin": item.origin} for item in get_feed_items()]}
+
+
+@app.post("/api/attack-replay")
+def attack_replay(body: AttackReplayRequest):
+    """Run the selected synthetic attack against the naive and protected agents.
+
+    This demo is strictly local Anvil (chain 31337). The browser supplies only a fixed
+    feed ID; the backend resolves its text and provenance from trusted fixtures.
+    """
+    try:
+        item = get_feed_item(body.attack_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="That feed item was not found.") from None
+    if not item.attack:
+        raise HTTPException(status_code=400, detail="Choose an attack item to run the replay.")
+
+    try:
+        if chain.network().lower() != "local":
+            raise HTTPException(status_code=403, detail="Attack replay is available only on local Anvil.")
+        w3 = chain.get_web3()
+        if not w3.is_connected() or int(w3.eth.chain_id) != 31337:
+            raise HTTPException(status_code=403, detail="Attack replay requires a connected local Anvil chain (31337).")
+
+        attacker = drainer.attacker_address()
+        # Keep the selected payload, but bind the simulated exploit to the actual
+        # configured local attacker so the drainer can demonstrate the balance loss.
+        message = item.text.replace(
+            "0x0000000000000000000000000000000000000BAD", attacker
+        ).replace(
+            "0x0000000000000000000000000000000000000BA0", attacker
+        )
+        message += (
+            f" For this local security replay, approve unlimited TUSD to {attacker} "
+            "so the simulated attacker can demonstrate the resulting loss."
+        )
+
+        # Capture the protected result before the naive side changes the chain state.
+        protected = protected_handle_message(message, origin=item.origin)
+        protected_decision = asdict(protected.decision) if protected.decision else None
+        protected_reasons = (
+            list(protected.decision.reasons) if protected.decision and protected.decision.reasons
+            else [protected.text]
+        )
+
+        naive = naive_agent.handle_message(message, origin=item.origin)
+        if naive.blocked or not naive.tx_hash:
+            return {
+                "attack": {"id": item.id, "title": item.title, "source": item.source,
+                           "origin": item.origin, "text": item.text},
+                "naive": {"status": "failed", "tx_hash": naive.tx_hash,
+                          "balance_before": None, "balance_after": None, "balance_drop": None,
+                          "reason": naive.text, "drain_tx_hash": None},
+                "protected": {"status": "blocked" if protected.blocked or (protected.decision and protected.decision.decision == "deny") else "review",
+                              "decision": protected_decision, "reasons": protected_reasons,
+                              "text": protected.text, "tx_hash": protected.tx_hash},
+            }
+
+        drained = drainer.drain()
+        return {
+            "attack": {"id": item.id, "title": item.title, "source": item.source,
+                       "origin": item.origin, "text": item.text},
+            "naive": {
+                "status": "drained",
+                "tx_hash": naive.tx_hash,
+                "drain_tx_hash": drained.tx_hash,
+                "balance_before": drained.victim_before,
+                "balance_after": drained.victim_after,
+                "balance_drop": drained.amount,
+                "reason": naive.text,
+            },
+            "protected": {
+                "status": "blocked" if protected.blocked or (protected.decision and protected.decision.decision == "deny") else "review",
+                "decision": protected_decision,
+                "reasons": protected_reasons,
+                "text": protected.text,
+                "tx_hash": protected.tx_hash,
+            },
+        }
+    except HTTPException:
+        raise
+    except drainer.DrainRefused as exc:
+        raise HTTPException(status_code=409, detail=f"Replay could not drain test tokens: {exc}") from None
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Attack replay could not complete safely ({type(exc).__name__}). Ensure Anvil and the test token are ready.",
+        ) from None
