@@ -54,3 +54,17 @@ input, select { border: 1px solid var(--line); border-radius: 6px; padding: 7px 
 .tag { margin-left: 8px; font-size: 12px; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
 .error { color: var(--bad); }
 .ok-text { color: var(--ok); }
+
+
+.attack-replay { border-top: 3px solid var(--ask); }
+.attack-payload { margin: 12px 0; padding: 12px; border: 1px dashed var(--line); border-radius: 8px; background: #fafbfc; }
+.attack-payload p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.replay-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.replay-panel { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.replay-panel h3 { margin-top: 0; }
+.replay-panel p { overflow-wrap: anywhere; }
+.naive-panel { border-top: 3px solid var(--bad); }
+.protected-panel { border-top: 3px solid var(--ok); }
+@media (max-width: 720px) {
+  .replay-columns { grid-template-columns: 1fr; }
+}
