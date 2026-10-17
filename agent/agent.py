@@ -178,3 +178,11 @@ def confirm_pending(request_id: str) -> AgentReply:
             text=f"I couldn't safely complete the confirmation ({type(exc).__name__}). No success is being reported.",
             blocked=True,
         )
+
+
+
+def has_pending_confirmation(request_id: str) -> bool:
+    """Return whether an unexpired agent confirmation exists, without consuming it."""
+    with _PENDING_LOCK:
+        _prune_pending(time.monotonic())
+        return request_id in _PENDING
