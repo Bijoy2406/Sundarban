@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm } from "./api.js";
+import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm, sendChat, getSecurity, setKillSwitch, getAudit } from "./api.js";
 
 // Anvil's public test account #1, handy as a demo recipient on the LOCAL chain only.
 const DEMO_RECIPIENT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
@@ -18,6 +18,9 @@ export default function App() {
         <WalletCard refreshKey={walletRefresh} />
         <LlmCard />
       </div>
+      <ChatCard onExecuted={onExecuted} />
+      <SecurityCard />
+      <AuditCard />
       <PlanCard onExecuted={onExecuted} />
     </div>
   );
@@ -226,4 +229,141 @@ function ExecutionResult({ result }) {
       : <code className="break">{result.tx_hash}</code>}</p>}
     {result.status === "awaiting_confirmation" && <p className="muted">Nothing has been sent yet. Review the request and confirm explicitly.</p>}
   </div>;
+}
+
+
+function ChatCard({ onExecuted }) {
+  const [message, setMessage] = useState("");
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const send = async (event) => {
+    event.preventDefault();
+    const text = message.trim();
+    if (!text || busy) return;
+    setMessage("");
+    setError("");
+    setItems((current) => [...current, { role: "user", text }]);
+    setBusy(true);
+    try {
+      const reply = await sendChat(text);
+      setItems((current) => [...current, { role: "agent", text: reply.text || "Request processed.", reply }]);
+      if (reply.status === "executed" || reply.tx_hash) onExecuted();
+    } catch {
+      setError("I couldn't send that message to the wallet agent. Check that the backend is running and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirm = async (requestId) => {
+    setError("");
+    setBusy(true);
+    try {
+      const result = await confirmPlan(requestId);
+      setItems((current) => [...current, { role: "agent", text: result.text || (result.status === "executed" ? "Confirmed. Transaction sent." : "Confirmation processed."), reply: result }]);
+      if (result.status === "executed" || result.tx_hash) onExecuted();
+    } catch {
+      setError("Confirmation failed or expired. Nothing should be assumed to have been sent.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <section className="card">
+    <h2>Chat with Sentinel</h2>
+    <p className="muted small">The agent can interpret requests, but only the server-side firewall decides whether a transaction is allowed.</p>
+    <div className="chat-log" aria-live="polite">
+      {items.length === 0 && <p className="muted small">Try: “Send 10 TUSD to 0x…” Nothing is sent until the protected workflow permits it.</p>}
+      {items.map((item, index) => <div className={`chat-message ${item.role}`} key={index}>
+        <strong>{item.role === "user" ? "You" : "Sentinel"}</strong>
+        <p>{item.text}</p>
+        {item.reply?.decision && <DecisionCard decision={item.reply.decision} />}
+        {item.reply?.tx_hash && <p className="small">Transaction: {item.reply.explorer_url
+          ? <a href={item.reply.explorer_url} target="_blank" rel="noreferrer">{item.reply.tx_hash}</a>
+          : <code className="break">{item.reply.tx_hash}</code>}</p>}
+        {item.reply?.status === "awaiting_confirmation" && item.reply?.request_id && <button onClick={() => confirm(item.reply.request_id)} disabled={busy}>Confirm transaction</button>}
+      </div>)}
+    </div>
+    <form className="chat-form" onSubmit={send}>
+      <label className="sr-only" htmlFor="agent-message">Message the wallet agent</label>
+      <input id="agent-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask Sentinel to transfer or manage a token…" maxLength={4000} />
+      <button type="submit" disabled={busy || !message.trim()}>{busy ? "Working…" : "Send"}</button>
+    </form>
+    {error && <p className="error" role="alert">{error}</p>}
+  </section>;
+}
+
+function DecisionCard({ decision }) {
+  if (!decision) return null;
+  const kind = ["allow", "ask", "deny"].includes(decision.decision) ? decision.decision : "deny";
+  return <div className={`decision ${kind}`}>
+    <strong>{kind === "allow" ? "ALLOW" : kind === "ask" ? "CONFIRMATION REQUIRED" : "DENY"}</strong>
+    {decision.rule_ids?.length > 0 && <p className="small">Rules: {decision.rule_ids.join(", ")}</p>}
+    <ul>{(decision.reasons || []).map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+  </div>;
+}
+
+function SecurityCard() {
+  const [enabled, setEnabled] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    getSecurity().then((data) => setEnabled(!!data.kill_switch_on)).catch(() => {
+      setEnabled(true);
+      setError("Could not verify kill-switch state; treating the wallet as frozen.");
+    }).finally(() => setLoaded(true));
+  }, []);
+  const change = async (event) => {
+    const next = event.target.checked;
+    setBusy(true);
+    setError("");
+    try {
+      const data = await setKillSwitch(next);
+      setEnabled(!!data.kill_switch_on);
+    } catch {
+      setEnabled(true);
+      setError("Could not safely update the kill switch. The wallet is treated as frozen.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <section className="card">
+    <h2>Emergency kill switch</h2>
+    <p className="muted small">When ON, the firewall should block wallet actions. If its state cannot be verified, this UI fails safe and shows ON.</p>
+    <label className="switch-row">
+      <input type="checkbox" checked={enabled} onChange={change} disabled={!loaded || busy} />
+      <span className={`switch-status ${enabled ? "danger-text" : "ok-text"}`}>{enabled ? "ON · wallet frozen" : "OFF · actions subject to firewall rules"}</span>
+    </label>
+    {error && <p className="error" role="alert">{error}</p>}
+  </section>;
+}
+
+function AuditCard() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    setError("");
+    try { setData(await getAudit()); }
+    catch { setError("The audit log could not be loaded safely. Please try again."); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const integrity = data?.integrity;
+  return <section className="card">
+    <div className="card-head"><h2>Audit log</h2><button onClick={load} disabled={busy}>{busy ? "Refreshing…" : "Refresh log"}</button></div>
+    {error && <p className="error" role="alert">{error}</p>}
+    {integrity && <p className={integrity.ok ? "ok-text" : "error"}>
+      {integrity.ok ? `Integrity verified · ${integrity.count} entries` : `Integrity check failed: ${integrity.reason || "unknown issue"}`}
+    </p>}
+    {data && data.entries.length === 0 && <p className="muted small">No audit entries yet.</p>}
+    {data?.entries?.length > 0 && <div className="audit-list">
+      {[...data.entries].reverse().map((entry) => <details className="audit-entry" key={entry.seq}>
+        <summary><span>#{entry.seq}</span> {entry.ts} <span className="muted">{entry.event?.event || "event"}</span></summary>
+        <pre>{JSON.stringify(entry.event, null, 2)}</pre>
+        <p className="mono small break">Hash: {entry.hash}</p>
+      </details>)}
+    </div>}
+  </section>;
 }
