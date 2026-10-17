@@ -14,24 +14,21 @@ against Sentinel Wallet (blocked, with the reason).
 
 ---
 
-## Current status (starting point)
+## Implementation status
 
-| Part | State |
+The repository now contains the main wallet engine, firewall, agent, API, and React UI components. Feature tests and the end-to-end test file are part of the repository; **test results depend on the environment**. Tests that require Anvil and a deployed TestUSD contract may be skipped when those prerequisites are unavailable. Do not treat skipped tests as proof of a live transaction flow.
+
+| Component | Current implementation |
 |---|---|
-| Shared types + contract test | ✅ done |
-| TestUSD token (ERC-20) + deploy script | ✅ done, tested on local Anvil, **deployed on Sepolia** (`evidence/deployments.json`) |
-| `wallet_engine`: `plan`, `balances`, `approvals` | ✅ real (read-only, sends nothing) |
-| `wallet_engine/attacks/drainer.py` | ✅ attacker for the attack replay; refuses unless local chain 31337 |
-| `wallet_engine`: `simulate`, `execute` | ✅ real: dry-run, then sign + send only with a valid approval token (verified on Anvil and Sepolia) |
-| `firewall`: HMAC approval tokens | ✅ real (`issue_token` / `verify_token`, PR #31) |
-| `firewall`: policy rules, `evaluate()` / `confirm()` | 🟡 **stub, always "allow"**, and it does not issue real tokens yet, so `execute()` refuses its decisions (Person 2, issue #15) |
-| `firewall`: audit log | ✅ real: hash-chained JSONL, tamper detection (`python scripts/verify_audit.py`) |
-| `agent`: intent parser, naive agent | 🟡 **stub** (Person 3) |
-| LLM client (OpenAI-compatible) + test button | ✅ done |
-| FastAPI backend + React frontend | ✅ starter: status, wallet, preview, LLM test |
+| Shared contract | `shared/types.py`; guarded by `tests/test_contract.py` |
+| TestUSD ERC-20 | Solidity contract and Foundry deploy script; local Anvil and Sepolia configuration are supported |
+| Wallet engine | Planning, simulation, transaction execution, balances, approvals and calldata binding |
+| Firewall | Deterministic policy evaluation, explicit confirmation, HMAC-bound approval tokens, kill switch and audit logging |
+| Agent | Strict intent parsing and protected orchestration; provenance is assigned by trusted code |
+| Naive agent + drainer | Intentionally unsafe demo path, restricted to local Anvil chain ID `31337` |
+| Backend + UI | FastAPI endpoints and React/Vite wallet, confirmation, audit and attack-replay surfaces |
 
-Track the remaining work in **GitHub Issues** (labels `person1`, `person2`, `person3`).
-**Start with the issue called "Build order"**: it lists what to do next, in order.
+Check the actual test output from your environment before making claims about coverage. The current full-suite history includes Windows audit-locking failures; see [Testing and known limitations](docs/technical_overview.md#testing-and-known-limitations).
 
 ---
 
@@ -199,8 +196,7 @@ Expected: `"backend":"ok"`, `"connected":true`, `"chain_id":31337`, `"token_depl
 | **Preview** (transfer 10 to the prefilled address) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and a green **ALLOW** card tagged **STUB** |
 | **Test connection** | with LLM settings filled: "✓ <model> replied OK in … ms" |
 
-The preview now shows the **real simulation** (e.g. a transfer larger than your balance shows "would fail: TestUSD: insufficient balance").
-Nothing is sent from the UI yet: the **Execute** button waits for the execute API endpoint (issue #29).
+The preview uses the transaction planner and simulation result. Execution is handled by the server API, which re-runs plan → simulate → firewall evaluation; the browser cannot authorize a transaction by sending its own decision. An `ask` result requires a separate confirmation action.
 
 **Tests:**
 ```bash
@@ -277,9 +273,49 @@ ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes       
 On Sepolia it refuses to send without `--yes`, ends with `RESULT: OK` only if 5+ transactions were sent and
 at least one action was denied, and records scripted confirmations as "scripted" in the CSV.
 
-## 11. Handy `cast` commands (local chain)
+## 11. Documentation and submission materials
+
+- [Technical overview](docs/technical_overview.md): architecture, chain layer, firewall, agent flow and known limitations.
+- [Presentation outline (under 10 minutes)](docs/presentation_outline.md): timed slide plan and key messages.
+- [Demo video script (under 5 minutes)](docs/demo_video_script.md): shot-by-shot narration and safety checklist.
+- [Submission package checklist and email draft](docs/submission_package.md): required attachments, unresolved evidence questions and a ready-to-review email.
+
+These are source documents, not proof that a deck was exported, a video recorded, or an email sent. Final submission evidence must be added by the team before delivery.
+
+## 12. Handy `cast` commands (local chain)
 
 ```bash
 cast chain-id --rpc-url http://127.0.0.1:8545
 cast call 0x5FbDB2315678afecb367f032d93F642f64180aa3 "balanceOf(address)(uint256)" 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --rpc-url http://127.0.0.1:8545
 ```
+
+
+## 13. Test-case index
+
+Run from the repository root with the Python environment activated:
+
+```bash
+python -m pytest tests/test_contract.py -v
+python -m pytest tests/test_api.py -v
+python -m pytest tests/test_feed.py -v
+python -m pytest tests/test_intents.py -v
+python -m pytest tests/test_agent.py -v
+python -m pytest tests/test_naive_agent.py -v
+python -m pytest tests/test_attack_replay.py -v
+python -m pytest tests/test_e2e.py -v
+python -m pytest -q
+```
+
+| Test file | Main purpose | Live-chain requirement |
+|---|---|---|
+| `tests/test_contract.py` | Shared dataclass fields, function signatures and firewall facade contract | No |
+| `tests/test_intents.py` | Strict intent schema, retry/refusal and untrusted-text delimiters | No |
+| `tests/test_agent.py` | Allow/ask/deny orchestration, confirmation and replay behavior with stubs | No |
+| `tests/test_naive_agent.py` | Naive-agent chain guard and deliberately unprotected execution path | Mocked |
+| `tests/test_feed.py` | Synthetic feed size, attack categories and trusted origin mapping | No |
+| `tests/test_api.py` | API endpoints, server-side decision enforcement and friendly errors | No (mocked) |
+| `tests/test_attack_replay.py` | Attack-replay API behavior and local-network guard | No (mocked) |
+| `tests/test_e2e.py` | Five protected-agent scenarios against Anvil and deployed TestUSD | **Yes: Anvil chain ID 31337 and deployed token** |
+| `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No; platform-dependent locking |
+
+A skipped test did not pass; it means its prerequisite was unavailable. The E2E scenarios are not verified until they execute against the required local chain.
