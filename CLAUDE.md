@@ -59,7 +59,7 @@ Limits live in `firewall/rules.yaml` (auto 50, max 500, daily 1000 TUSD; `chain_
 Full table with enforcement points: `docs/security_self_assessment.md` section 3.2.
 
 ## Tech stack
-Python 3.11+ (developed and tested on 3.14), web3.py v7, Foundry (anvil, forge), Sepolia testnet, OpenZeppelin ERC-20 "TestUSD",
+Python 3.14 (the only version tested; 3.11 to 3.13 not verified), web3.py v7, Foundry (anvil, forge), Sepolia testnet, OpenZeppelin ERC-20 "TestUSD",
 an OpenAI-compatible LLM API (openai SDK; LLM_BASE_URL / LLM_MODEL / LLM_API_KEY in .env, provider switchable),
 PyYAML, HMAC-SHA256 (stdlib), JSONL hash-chained log, FastAPI backend (`api/main.py`, port 8000),
 React + Vite frontend (`ui/`, port 5173, proxies /api to 8000), pytest.
@@ -70,7 +70,7 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 ## Environment notes
 - This repo lives on an **NTFS drive** (`/run/media/salman/FCB8237BB8233414/wallet`). Keep the Python venv OFF it
   (e.g. `~/.venvs/sentinel`). `core.fileMode` is set to false.
-- GitHub: https://github.com/Bijoy2406/Sundarban (public). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
+- GitHub: https://github.com/Bijoy2406/Sundarban (**currently private**: make it public, or add the judges, before submitting). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
 
 ## Status (updated 18 Oct 2026)
 Code and evidence are complete; what remains is the presentation material and sending it.
@@ -81,14 +81,23 @@ Code and evidence are complete; what remains is the presentation material and se
 - [x] Red-team: 40 attacks + 15 benign cases, runner and report (`python -m firewall.redteam.run`): 55/55, 0/40 attacks let through,
       0/15 wrongly denied; both agents on Anvil: protected executes 0/40, naive executes 38/40
 - [x] Sepolia evidence run through the real pipeline: 6 transactions sent, 2 denied (`evidence/tx_hashes.csv`); audit head anchored on Sepolia
-- [x] Tests: 1235 passed / 1 skipped with Anvil, 1173 passed / 63 skipped without
+- [x] Tests: 1288 passed / 1 skipped with Anvil, 1226 passed / 63 skipped without
 - [x] Documents: `README.md`, `docs/technical_overview.md`, `docs/security_self_assessment.md`, `docs/tech_chain_layer.md`
 - [ ] Deck (10 minutes at most), demo video (5 minutes at most, no keys on screen), final email: drafts in `docs/presentation_outline.md`,
       `docs/demo_video_script.md`, `docs/submission_package.md`. Issue #28 stays open until these exist.
 - [ ] Send the package to wangyr@pbcsf.tsinghua.edu.cn: deadline 20 Oct 2026 23:59 Beijing time, aim for noon; code freeze 19 Oct.
 Decisions still open for the team (all documented in the self-assessment risk list): set `chain_id` in `firewall/rules.yaml` so NET-01 is
-active (R-01); fix R-09 (broadcast timeout reported as failure), R-10 (replay wording on a provider outage) and R-11 (`--verify` crash on a
-malformed record) before the freeze or leave them documented; run the suite once on a real Windows machine (R-16).
+active (R-01); make the repository public or add the judges; run the suite once on a real Windows machine (R-16). R-09 (broadcast
+timeout), R-10 (replay wording on an outage), R-11 (`--verify` on a malformed record) and the Host-header exposure (R-03) are mitigated.
+
+## Changes made outside the author's own folder (to be announced to Person 2 and Person 3)
+Rule above: only edit your own folder. On 17-18 Oct 2026 Person 1 (with Person 2 and Person 3 busy) also changed:
+- Person 2's `firewall/tokens.py` (a used approval token stays used: canonical expiry, memory keyed by signature) and
+  `firewall/policy.py` (VEL-01 wording only); new `shared/redact.py` (error-text redaction, a new file, `shared/types.py` untouched).
+- Person 3's `agent/` (replay, `handle_intent`, intent parser, redaction), `api/main.py` (Host allowlist, address checks, token never
+  sent to the browser, pending state) and `ui/src/App.jsx` (replay card, pending state).
+Each change has tests and is in git history. Person 2 and Person 3 must read them before submission; nothing here changes a rule
+threshold, the allowlist, `rules.yaml` or `shared/types.py`.
 
 ## Working style
 - Small steps, run everything, commit after each working step.

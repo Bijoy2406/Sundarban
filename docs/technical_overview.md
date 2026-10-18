@@ -213,7 +213,7 @@ no authentication (single-user local demo; see risk R-03).
 
 ## 8. Reproduce the local setup
 
-Requirements: Python 3.11+ (developed and tested on 3.14), Node.js 20.19+ or 22.12+, Foundry (anvil, forge, cast), Git.
+Requirements: Python 3.14 (the only version tested; 3.11 to 3.13 not verified; exact package versions in `requirements.lock`), Node.js 20.19+ or 22.12+, Foundry (anvil, forge, cast), Git.
 The step-by-step path (setup, `.env`, four terminals, health check) is the README, sections 1 to 4:
 [README.md](../README.md#1-prerequisites-install-once). In short: `anvil`; `python wallet_engine/scripts/deploy.py`;
 `uvicorn api.main:app --port 8000`; `cd ui && npm run dev`; open http://localhost:5173.
@@ -222,8 +222,8 @@ The step-by-step path (setup, `.env`, four terminals, health check) is the READM
 
 | Evidence | Result | Where / command |
 |---|---|---|
-| Automated tests, local Anvil + TestUSD | 1235 passed, 1 skipped | `python -m pytest -q` |
-| Automated tests, no chain | 1173 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Automated tests, local Anvil + TestUSD | 1288 passed, 1 skipped | `python -m pytest -q` |
+| Automated tests, no chain | 1226 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
 | Red-team suite | 55/55 as expected; 36 denied, 4 held, 0 of 40 attacks let through; 0/15 legitimate requests wrongly denied | `python -m firewall.redteam.run --no-write`; report `evidence/redteam_report.md` |
 | Same attacks through both real agents | protected agent executed 0/40; naive agent 38/40 | `python -m firewall.redteam.run --agents --no-write` (local Anvil) |
 | Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` (hashes and explorer links in the self-assessment, section 7.3; the wallet's complete history of 15 sends, including 4 unintended test-run transactions, is in [section 7.4](security_self_assessment.md#74-sepolia-wallet-activity-complete-list)) |
