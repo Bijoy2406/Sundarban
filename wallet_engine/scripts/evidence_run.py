@@ -10,8 +10,9 @@ confirm: one over the auto limit, and the 6th action, which trips the velocity l
 be denied (an unlimited approval, and an instruction that arrived from a public post). Denied rows are recorded with no transaction hash.
 
 Velocity (rule VEL-01, more than 5 actions in 10 minutes: ask) is part of the evidence on purpose:
-every request counts toward it, so the 6th scenario is expected to be ASKED with VEL-01, and the two
-denied rows also list VEL-01 next to the rule that denied them. With a long --pause the actions may
+requests from a trusted origin count toward it, so the 6th scenario is expected to be ASKED with VEL-01, and a denied
+row from the owner's chat also lists VEL-01 next to the rule that denied it (requests from untrusted origins no
+longer count; the submitted 16 Oct run predates that, so its public-post row lists VEL-01 too). With a long --pause the actions may
 fall outside the 10-minute window and the 6th scenario is then reported as UNEXPECTED.
 
     # rehearsal on the local chain (anvil running, token deployed)
@@ -74,8 +75,8 @@ class Scenario:
 
 
 VEL_RULE = "VEL-01"
-VEL_NOTE = ("every request counts toward the velocity limit (VEL-01: more than 5 actions in 10 minutes), "
-            "so denied rows also list VEL-01 next to the rule that denied them")
+VEL_NOTE = ("requests from a trusted origin count toward the velocity limit (VEL-01: more than 5 actions in 10 minutes), "
+            "so a denied row from the owner's chat can also list VEL-01 next to the rule that denied it")
 
 
 SCENARIOS = [

@@ -15,7 +15,9 @@ import os
 import threading
 
 from web3 import Web3
+from web3.exceptions import Web3RPCError
 
+from shared.redact import redact
 from shared.types import Decision, TxPlan
 
 from . import chain
@@ -67,6 +69,15 @@ def _refuse(decision, reason: str):
 def _hex(value) -> str:
     text = value.hex()
     return text if text.startswith("0x") else "0x" + text
+
+
+def _node_rejected(exc: Exception) -> bool:
+    """True when the node ANSWERED with a JSON-RPC error (nonce too low, underpriced, insufficient funds...): the
+    transaction was not accepted. 'already known' means it IS in the mempool, so that one is not a rejection.
+    Timeouts and dropped connections are not answers, so they stay 'pending'."""
+    rpc_error = isinstance(exc, Web3RPCError) or (
+        isinstance(exc, ValueError) and bool(exc.args) and isinstance(exc.args[0], dict) and "code" in exc.args[0])
+    return rpc_error and "known" not in str(exc).lower()
 
 
 def _fee_fields(w3: Web3) -> dict:
@@ -134,7 +145,10 @@ def run(plan: TxPlan, decision: Decision) -> str:
         tx_hash = _hex(signed.hash)          # known before anything is sent, so a send that fails midway can still be traced
         try:
             tx_hash = _hex(w3.eth.send_raw_transaction(signed.raw_transaction))
-        except Exception:       # a timeout or a dropped connection: the node may have accepted it, so it is not a failure
+        except Exception as exc:
+            if _node_rejected(exc):      # an answer from the node that says no: nothing is in the mempool
+                _refuse(decision, f"The node rejected the transaction: {redact(exc)}")
+            # a timeout or a dropped connection: the node may have accepted it, so it is not a failure
             _audit({"event": "TX_PENDING", "request_id": decision.request_id, "tx_hash": tx_hash})
             raise ExecutionPending(tx_hash) from None
     _audit({"event": "TX_SENT", "request_id": decision.request_id, "tx_hash": tx_hash,

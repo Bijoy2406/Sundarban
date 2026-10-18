@@ -3,6 +3,7 @@
 Amounts are always strings in token units (e.g. "12.5") at the edges and integers
 (base units, 18 decimals) on-chain. Never use float for money.
 """
+import re
 from decimal import Context, Decimal, Inexact, InvalidOperation, localcontext
 
 from web3 import Web3
@@ -10,6 +11,8 @@ from web3 import Web3
 from shared.types import ActionRequest, TxPlan
 
 MAX_UINT256 = 2**256 - 1
+
+_AMOUNT = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")      # the same pattern as agent/intents.py
 
 # The default Decimal context keeps 28 digits and ROUNDS silently, which turns a long amount into a different one.
 # 200 digits hold any uint256 (78 digits) times 10**18 exactly; Inexact is trapped so that anything that still does
@@ -57,8 +60,10 @@ FALLBACK_GAS = 100_000   # used only when the node cannot estimate (e.g. the tx 
 
 def to_base_units(amount: str, decimals: int = 18) -> int:
     """'12.5' -> 12500000000000000000. Rejects negatives, junk and too many decimals."""
+    if not isinstance(amount, str) or not _AMOUNT.fullmatch(amount):      # no spaces, exponents, NaN or non-ASCII digits
+        raise ValueError(f"Not a plain decimal number: {amount!r}")
     try:
-        value = Decimal(str(amount).strip())
+        value = Decimal(amount)
     except InvalidOperation:
         raise ValueError(f"Not a number: {amount!r}")
     if value < 0:

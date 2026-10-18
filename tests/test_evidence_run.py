@@ -21,8 +21,8 @@ ALICE, BOB = evidence_run.ALICE, evidence_run.BOB
 
 
 class StandInPolicy:
-    """Just enough rules to rehearse the script. NOT the real firewall. Like the real one, every request
-    counts toward velocity (VEL-01 asks from the 6th action) and every fired rule is reported."""
+    """Just enough rules to rehearse the script. NOT the real firewall. Unlike the real firewall (only trusted
+    origins count), this stand-in counts every request toward velocity (VEL-01 asks from the 6th action) and every fired rule is reported."""
 
     def __init__(self):
         self.allow = {ALICE.lower(), BOB.lower()}

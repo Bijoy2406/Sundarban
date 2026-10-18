@@ -57,7 +57,7 @@ def test_public_network_falls_back_to_the_known_spenders(setup):
 
 
 def test_fallback_with_no_active_approval_is_an_empty_list(setup):
-    setup(FakeToken({}, scan_error=RuntimeError("range")), "sepolia")
+    setup(FakeToken({}, scan_error=RuntimeError("block range too large")), "sepolia")
     assert chain.approvals() == []
 
 
@@ -84,6 +84,9 @@ def test_candidates_survive_a_missing_rules_file(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("error", [
     RuntimeError("429 Too Many Requests: rate limit exceeded"),
+    ValueError("block number out of range"),
+    IndexError("list index out of range"),
+    RuntimeError("upstream proxy: arrange retry later"),
     ConnectionError("HTTPSConnectionPool: Max retries exceeded"),
     TimeoutError("read timed out"),
     ValueError("something else went wrong"),

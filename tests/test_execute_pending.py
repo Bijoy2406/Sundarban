@@ -32,8 +32,8 @@ class FakeEth:
     account = Web3().eth.account
     chain_id = 31337
 
-    def __init__(self, wait=None, send_delay=0.0):
-        self.wait, self.send_delay = wait, send_delay
+    def __init__(self, wait=None, send_delay=0.0, send_error=None):
+        self.wait, self.send_delay, self.send_error = wait, send_delay, send_error
         self.next_nonce, self.nonces_used, self.sent = 0, [], []
         self._lock = threading.Lock()
         self.gas_price, self.max_priority_fee = 10**9, 10**9
@@ -46,6 +46,8 @@ class FakeEth:
             return self.next_nonce
 
     def send_raw_transaction(self, raw):
+        if self.send_error:
+            raise self.send_error
         decoded = TypedTransaction.from_bytes(HexBytes(raw)).as_dict()      # the nonce that was really signed
         time.sleep(self.send_delay)                      # a window in which a second sender could read the same nonce
         with self._lock:
@@ -210,3 +212,49 @@ def test_the_agent_and_the_api_report_a_failed_send_as_pending_not_failed(node, 
     response = TestClient(api.app).post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "5"})
     assert response.status_code == 200
     assert response.json()["status"] == "pending" and response.json()["tx_hash"].startswith("0x")
+
+
+# ------------------------------------------------------------------ a node's "no" is a refusal; a silence is pending
+
+@pytest.mark.parametrize("message", ["nonce too low: next nonce 7, tx nonce 3", "replacement transaction underpriced",
+                                     "insufficient funds for gas * price + value"])
+def test_a_json_rpc_rejection_is_a_refusal_not_pending(node, message):
+    from web3.exceptions import Web3RPCError
+    node(FakeEth(send_error=Web3RPCError(message)))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionRefused, match="rejected the transaction"):
+        wallet_engine.execute(plan, allow(req, plan))
+    assert [e["event"].get("event") for e in audit.tail(10)] == ["EXECUTE_REFUSED"]       # no TX_PENDING for a tx that never existed
+
+
+def test_the_old_style_value_error_rpc_answer_is_also_a_refusal(node):
+    node(FakeEth(send_error=ValueError({"code": -32000, "message": "nonce too low"})))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionRefused):
+        wallet_engine.execute(plan, allow(req, plan))
+
+
+def test_a_rejection_message_does_not_leak_the_rpc_url(node):
+    from web3.exceptions import Web3RPCError
+    node(FakeEth(send_error=Web3RPCError("nonce too low for https://eth-sepolia.g.alchemy.com/v2/SECRETKEY0123456789")))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionRefused) as caught:
+        wallet_engine.execute(plan, allow(req, plan))
+    assert "SECRETKEY" not in str(caught.value) and "alchemy" not in str(caught.value)
+
+
+def test_already_known_means_it_is_in_the_mempool_so_it_stays_pending(node):
+    from web3.exceptions import Web3RPCError
+    node(FakeEth(send_error=Web3RPCError("already known")))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionPending):
+        wallet_engine.execute(plan, allow(req, plan))
+
+
+@pytest.mark.parametrize("error", [ConnectionError("connection reset"), TimeoutError("read timed out")])
+def test_a_timeout_or_dropped_connection_stays_pending(node, error):
+    node(FakeEth(send_error=error))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionPending) as caught:
+        wallet_engine.execute(plan, allow(req, plan))
+    assert caught.value.tx_hash.startswith("0x") and len(caught.value.tx_hash) == 66

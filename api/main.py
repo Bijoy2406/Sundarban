@@ -21,6 +21,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import firewall
 import wallet_engine
@@ -35,6 +36,9 @@ from wallet_engine import chain
 from firewall import audit, state
 
 app = FastAPI(title="Sundarban API", version="0.2.0")
+# DNS rebinding: a web page can make its own hostname resolve to 127.0.0.1 and then call this API as if it were the
+# owner. Only the local names are accepted as Host ("testserver" is the name the FastAPI TestClient sends).
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 _CONFIRM_TTL_SECONDS = 600
 _MAX_PENDING_CONFIRMATIONS = 1000
 _PENDING_LOCK = threading.RLock()

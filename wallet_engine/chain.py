@@ -119,7 +119,8 @@ def _is_block_range_error(exc: Exception) -> bool:
     "exceed maximum block range"); a timeout, a rate limit or any other failure is NOT this error.
     """
     text = str(exc).lower()
-    return "range" in text or "10000 results" in text or "10,000 results" in text or "response size exceeded" in text
+    return any(phrase in text for phrase in ("block range", "10 block", "range too large", "range is too large", "10000 results",
+                                              "10,000 results", "too many results", "response size exceeded"))
 
 
 def approvals(w3: Web3 | None = None) -> list:

@@ -103,3 +103,16 @@ def test_balances_and_approvals(live):
     b = wallet_engine.balances()
     assert set(b) == {"ETH", "TUSD"}
     assert isinstance(wallet_engine.approvals(), list)
+
+
+@pytest.mark.parametrize("bad", [" 5", "5 ", "\u0665", "\uff15", "1e3", "1E-3", "NaN", "Infinity", "-0", "+5", "05", ".5", "5.", "1_0", "0x10", None, 5, 5.0])
+def test_to_base_units_accepts_only_the_plain_decimal_pattern_the_agent_uses(bad):
+    """Same rule as agent/intents.py: no spaces, signs, exponents, NaN/Infinity, leading zeros or non-ASCII digits.
+    Everything is a clean ValueError (never InvalidOperation or OverflowError)."""
+    with pytest.raises(ValueError):
+        erc20.to_base_units(bad)
+
+
+@pytest.mark.parametrize("text, raw", [("0", 0), ("0.5", 5 * 10**17), ("10", 10 * 10**18), ("100.000000000000000001", 100 * 10**18 + 1)])
+def test_to_base_units_still_takes_plain_amounts(text, raw):
+    assert erc20.to_base_units(text) == raw

@@ -159,7 +159,8 @@ def test_a_missing_model_does_not_stop_the_replay(world, monkeypatch):
         raise RuntimeError("Missing in .env: LLM_API_KEY")
     monkeypatch.setattr(replay, "parse_intent", no_key)
     body = client.post("/api/attack-replay", json={"attack_id": "x-attack-base64"}).json()
-    assert body["intent"]["source"] == "scripted" and body["layer1"]["status"] == "refused"
+    assert body["intent"]["source"] == "scripted" and body["layer1"]["status"] == "unreachable"      # not 'refused'
+    assert "could not be reached" in body["intent"]["note"] and "RuntimeError" in body["layer1"]["detail"]
 
 
 def test_layer_one_reports_whether_the_wrapper_stopped_the_model(world, monkeypatch):
@@ -247,3 +248,45 @@ def test_live_replay_on_anvil_the_naive_agent_is_drained_and_the_firewall_names_
     rules = body["protected"]["decision"]["rule_ids"]
     assert "PRV-01" in rules and "APR-01" in rules               # the firewall, not the model, stopped it
     assert body["protected"]["tx_hash"] is None
+
+
+# ------------------------------------------------------------------ an outage is not a refusal
+
+def _parse_error(cause):
+    error = IntentParseError()
+    error.__cause__ = cause          # what parse_intent does: `raise IntentParseError() from last_error`
+    return error
+
+
+@pytest.mark.parametrize("cause", [ConnectionError("provider unreachable"), TimeoutError("read timed out"),
+                                   RuntimeError("Missing in .env: LLM_API_KEY")])
+def test_an_outage_behind_intent_parse_error_is_reported_as_unreachable(world, monkeypatch, cause):
+    def down(text, **kwargs):
+        raise _parse_error(cause)
+    monkeypatch.setattr(replay, "parse_intent", down)
+    body = client.post("/api/attack-replay", json={"attack_id": "x-attack-direct"}).json()
+    assert body["layer1"]["status"] == "unreachable" and type(cause).__name__ in body["layer1"]["detail"]
+    assert "refused" not in body["layer1"]["detail"] and "could not be reached" in body["intent"]["note"]
+    assert body["intent"]["source"] == "scripted"
+
+
+@pytest.mark.parametrize("cause", [ValueError("response was not valid JSON"), ValueError("unsupported action"), None])
+def test_a_real_refusal_or_bad_reply_is_still_reported_as_refused(world, monkeypatch, cause):
+    def no_action(text, **kwargs):
+        raise _parse_error(cause)
+    monkeypatch.setattr(replay, "parse_intent", no_action)
+    body = client.post("/api/attack-replay", json={"attack_id": "x-attack-direct"}).json()
+    assert body["layer1"]["status"] == "refused" and "no usable action" in body["intent"]["note"]
+
+
+def test_the_real_parse_intent_keeps_the_cause_so_an_outage_is_not_a_refusal(world, monkeypatch):
+    """End to end through the real parse_intent (only the HTTP call is replaced)."""
+    import agent.intents as intents
+    from agent.intents import parse_intent as real_parse
+
+    def down(messages):
+        raise ConnectionError("provider unreachable")
+    monkeypatch.setattr(intents, "_llm_call", down)
+    monkeypatch.setattr(replay, "parse_intent", real_parse)
+    body = client.post("/api/attack-replay", json={"attack_id": "x-attack-direct"}).json()
+    assert body["layer1"]["status"] == "unreachable" and "ConnectionError" in body["layer1"]["detail"]

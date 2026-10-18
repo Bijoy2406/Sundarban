@@ -445,8 +445,9 @@ function AttackReplayCard({ onExecuted }) {
             <p className="muted small">{result.intent.note}</p>
             <p className="small">
               <strong>Layer 1, model hardening:</strong>{" "}
-              <span className={result.layer1.status === "fooled" ? "danger-text" : "ok-text"}>
-                {result.layer1.status === "fooled" ? "not enough on its own" : "the model refused"}
+              <span className={result.layer1.status === "fooled" ? "danger-text" : result.layer1.status === "refused" ? "ok-text" : "muted"}>
+                {result.layer1.status === "fooled" ? "not enough on its own"
+                  : result.layer1.status === "refused" ? "the model refused" : "not tested: the model could not be reached"}
               </span>{" "}
               · {result.layer1.detail} <strong>Layer 2, the firewall</strong> does not depend on the model.
             </p>
