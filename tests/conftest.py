@@ -9,6 +9,8 @@ def _isolated_files(tmp_path, monkeypatch):
     monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.jsonl"))
     monkeypatch.setenv("SPEND_LEDGER_PATH", str(tmp_path / "spend_ledger.jsonl"))
     monkeypatch.setenv("KILL_SWITCH_PATH", str(tmp_path / "kill_switch.flag"))
+    monkeypatch.setenv("USED_TOKENS_PATH", str(tmp_path / "used_tokens.jsonl"))     # spent approval tokens
+    monkeypatch.setenv("VELOCITY_PATH", str(tmp_path / "velocity.jsonl"))            # recent action timestamps
     monkeypatch.setenv("APPROVAL_SECRET", "test-only-secret-0123456789abcdef")
 
 

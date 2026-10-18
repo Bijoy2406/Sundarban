@@ -55,7 +55,7 @@ RUN_ALLOWLIST = [ALICE, BOB]       # the allowlist the red-team data assumes (se
 MAX_UINT256 = 2 ** 256 - 1
 
 _ENV_KEYS = ("RULES_PATH", "SPEND_LEDGER_PATH", "KILL_SWITCH_PATH", "AUDIT_LOG_PATH",
-             "APPROVAL_SECRET", "TOKEN_ADDRESS")
+             "USED_TOKENS_PATH", "VELOCITY_PATH", "APPROVAL_SECRET", "TOKEN_ADDRESS")
 
 
 # ======================================================================================== loading
@@ -136,6 +136,8 @@ def _begin_case(case_dir: Path, base_rules: dict, chain_id: int, setup: dict) ->
     os.environ["RULES_PATH"] = str(rules_path)
     os.environ["SPEND_LEDGER_PATH"] = str(case_dir / "spend_ledger.jsonl")
     os.environ["KILL_SWITCH_PATH"] = str(case_dir / "kill_switch.flag")
+    os.environ["USED_TOKENS_PATH"] = str(case_dir / "used_tokens.jsonl")      # spent tokens and recent actions are files now:
+    os.environ["VELOCITY_PATH"] = str(case_dir / "velocity.jsonl")           # each case gets its own, never logs/
     _forget_everything()
     if setup.get("kill_switch"):
         state.set_kill_switch(True)

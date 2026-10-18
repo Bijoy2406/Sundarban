@@ -638,9 +638,10 @@ def test_kill_switch_survives_a_restart():
     assert _other_process("from firewall import state; print(state.kill_switch_on())") == "False"
 
 
-def test_velocity_is_in_memory_only_a_restart_forgets_it():
+def test_velocity_is_kept_in_a_file_so_a_restart_does_not_forget_it():
+    """(Changed on purpose: velocity used to be in memory only, so a restart handed out a fresh budget.)"""
     state.record_action()
-    assert _other_process("from firewall import state; print(state.actions_in_window(600))") == "0"
+    assert _other_process("from firewall import state; print(state.actions_in_window(600))") == "1"
 
 
 # =====================================================================================================
@@ -685,18 +686,24 @@ def test_bad_windows_are_refused(window):
 
 
 def test_action_memory_is_bounded_and_never_under_reports(monkeypatch):
+    """The memory mirror AND the file keep only the newest ACTION_MEMORY actions (a small bound here: every record
+    now reads the file, so a 10,000-iteration loop would be pointlessly slow)."""
+    assert state.ACTION_MEMORY > state.MAX_VELOCITY_ACTIONS            # the real constant: always enough for any threshold
+    monkeypatch.setattr(state, "ACTION_MEMORY", 50)
     monkeypatch.setattr(state, "_ACTIONS", deque(maxlen=50))
-    for _ in range(5000):
+    for _ in range(300):
         state.record_action()
     assert len(state._ACTIONS) == 50
     assert state.actions_in_window(600) == 50              # still far above any threshold up to 50
-    assert state.ACTION_MEMORY > state.MAX_VELOCITY_ACTIONS
+    assert len(state._velocity_path().read_text().splitlines()) == 50
 
 
-def test_real_memory_bound_is_enforced():
-    for _ in range(state.ACTION_MEMORY + 500):
+def test_real_memory_bound_is_enforced(monkeypatch):
+    monkeypatch.setattr(state, "ACTION_MEMORY", 200)
+    monkeypatch.setattr(state, "_ACTIONS", deque(maxlen=200))
+    for _ in range(200 + 100):
         state.record_action()
-    assert len(state._ACTIONS) == state.ACTION_MEMORY
+    assert len(state._ACTIONS) == 200 and state.actions_in_window(600) == 200
 
 
 # =====================================================================================================

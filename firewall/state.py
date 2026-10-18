@@ -28,6 +28,7 @@ Limits are ONE process at a time: do not run several server workers against the 
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import re
@@ -330,28 +331,94 @@ def spent_last_24h() -> Decimal:
 
 
 # =====================================================================================================
-# 2b. velocity memory (in memory only)
+# 2b. velocity memory (a small file, so a restart does not hand out a fresh budget)
 # =====================================================================================================
 
-_ACTIONS = deque(maxlen=ACTION_MEMORY)
+_log = logging.getLogger("firewall.state")
+_ACTIONS = deque(maxlen=ACTION_MEMORY)       # in-process mirror of what was written; the FILE is what is counted
+
+
+def _velocity_path() -> Path:
+    env = os.getenv("VELOCITY_PATH")
+    return Path(env) if env else LOGS_DIR / "velocity.jsonl"
+
+
+def _append_durable(path: Path, line: bytes) -> None:
+    """Append one line and flush it to disk (fsync) before returning."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "ab") as out:
+        out.write(line)
+        out.flush()
+        os.fsync(out.fileno())
+
+
+def _load_actions() -> list:
+    """Every recorded action time. Missing file = none. Anything unreadable raises StateCorruptError / StateError."""
+    path = _velocity_path()
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise StateError(f"the velocity record cannot be read ({type(exc).__name__})") from None
+    if not data:
+        return []
+    if not data.endswith(b"\n"):
+        raise StateCorruptError("the velocity record ends in a half-written line")
+    times = []
+    for number, line in enumerate(data.split(b"\n")[:-1], start=1):
+        try:
+            ts = json.loads(line.decode("utf-8"))["ts"]
+            if type(ts) not in (int, float) or not math.isfinite(ts):
+                raise ValueError
+        except Exception:
+            raise StateCorruptError(f"the velocity record was damaged (line {number})") from None
+        times.append(ts)
+    return times
 
 
 def record_action() -> None:
-    """Remember that one action was requested (used for the 'too many actions' rule VEL-01)."""
+    """Remember that one action was requested (used for the 'too many actions' rule VEL-01).
+
+    The time is appended to the velocity file and flushed to disk. Entries older than a day are dropped when the file
+    is rewritten. If the file cannot be read it is NOT overwritten (that would erase the evidence and reset the limit):
+    the action is only counted in memory, and actions_in_window() keeps answering 'at the limit' until it is fixed."""
     with _LOCK:
-        _ACTIONS.append(_clock())
+        now = _clock()
+        _ACTIONS.append(now)
+        path = _velocity_path()
+        try:
+            entries = _load_actions()
+        except StateError as exc:
+            _log.warning("velocity record unreadable, action counted in memory only: %s", exc)
+            return
+        live = [ts for ts in entries if now - ts <= MAX_VELOCITY_WINDOW]
+        live.append(now)
+        if len(live) > ACTION_MEMORY:
+            live = live[-ACTION_MEMORY:]
+        if len(live) == len(entries) + 1:
+            _append_durable(path, json.dumps({"ts": now}, separators=(",", ":")).encode("utf-8") + b"\n")
+        else:
+            _write_atomic(path, [json.dumps({"ts": ts}, separators=(",", ":")).encode("utf-8") + b"\n" for ts in live])
 
 
 def actions_in_window(window_seconds=None) -> int:
-    """How many actions happened in the last `window_seconds` (default: the window in rules.yaml).
-    Only the newest ACTION_MEMORY actions are kept, which is always enough to know 'at least max_actions'."""
+    """How many actions happened in the last `window_seconds` (default: the window in rules.yaml), read from the file.
+    Only the newest ACTION_MEMORY actions are kept, which is always enough to know 'at least max_actions'.
+    An unreadable file counts as 'at the limit'."""
     if window_seconds is None:
         window_seconds = load_rules()["velocity_window_seconds"]
     if not (_is_int(window_seconds) and 1 <= window_seconds <= MAX_VELOCITY_WINDOW):
         raise ValueError(f"window_seconds must be a whole number from 1 to {MAX_VELOCITY_WINDOW}")
     with _LOCK:
+        try:
+            times = _load_actions()
+        except StateError as exc:
+            # Unknown history: act as if the limit is reached, so the firewall ASKS a person and never just allows.
+            _log.warning("velocity record unreadable, treating the window as full: %s", exc)
+            return load_rules()["velocity_max_actions"]
         now = _clock()
-        return sum(1 for ts in _ACTIONS if now - ts <= window_seconds)
+        return sum(1 for ts in times if now - ts <= window_seconds)
 
 
 # =====================================================================================================
@@ -411,10 +478,11 @@ def reset() -> None:
     global _KILL_SWITCH
     if "PYTEST_CURRENT_TEST" not in os.environ:
         raise RuntimeError("state.reset() is only for tests")
-    if not (os.getenv("SPEND_LEDGER_PATH") and os.getenv("KILL_SWITCH_PATH")):
-        raise RuntimeError("state.reset() needs SPEND_LEDGER_PATH and KILL_SWITCH_PATH set (see tests/conftest.py)")
+    if not (os.getenv("SPEND_LEDGER_PATH") and os.getenv("KILL_SWITCH_PATH") and os.getenv("VELOCITY_PATH")):
+        raise RuntimeError("state.reset() needs SPEND_LEDGER_PATH, KILL_SWITCH_PATH and VELOCITY_PATH set (see tests/conftest.py)")
     with _LOCK:
         _ACTIONS.clear()
+        _velocity_path().unlink(missing_ok=True)
         _KILL_SWITCH = False
         _ledger_path().unlink(missing_ok=True)
         _flag_path().unlink(missing_ok=True)
