@@ -33,8 +33,8 @@ absorbs the attack before it reaches the funds.
 
 | Evidence | Result | Reproduce |
 |---|---|---|
-| Automated tests (local Anvil + TestUSD) | **1288 passed, 1 skipped** | `python -m pytest -q` |
-| Automated tests (no chain) | 1226 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Automated tests (local Anvil + TestUSD) | **1357 passed, 1 skipped** | `python -m pytest -q` |
+| Automated tests (no chain) | 1293 passed, 65 skipped (skipped is not passed) | `python -m pytest -q` |
 | Red-team suite (40 attacks, 15 legitimate) | 55/55 as expected; 36 denied, 4 held, **0 let through**; **0/15** wrongly denied | `python -m firewall.redteam.run --no-write` |
 | Same attacks through both real agents | protected agent executed **0/40**; naive agent executed **38/40** | `python -m firewall.redteam.run --agents --no-write` |
 | Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv`; the wallet's complete history of 15 sends: [security self-assessment 7.4](docs/security_self_assessment.md#74-sepolia-wallet-activity-complete-list) |
@@ -260,7 +260,7 @@ Preview calls `firewall.preview`, which has **no side effects** (it is not count
 ```bash
 python -m pytest -q
 ```
-With anvil running and the token deployed: **1288 passed, 1 skipped** (the one skip is a retired check that applied only to an older firewall). Without anvil: **1226 passed, 63 skipped** (the chain tests are skipped, shown as `s`, and a skipped test did not pass).
+With anvil running and the token deployed: **1357 passed, 1 skipped** (the one skip is a retired check that applied only to an older firewall). Without anvil: **1293 passed, 65 skipped** (the chain tests are skipped, shown as `s`, and a skipped test did not pass).
 A failure in `tests/test_contract.py` means someone changed the shared data types or function signatures.
 
 ---
@@ -403,8 +403,8 @@ python -m pytest -q
 
 | Situation | Result (measured 18 Oct 2026) |
 |---|---|
-| anvil running, token deployed | **1288 passed, 1 skipped** (a retired check in `test_evidence_run.py`) |
-| no anvil | **1226 passed, 63 skipped**: the 63 tests that need the local chain show as `s` |
+| anvil running, token deployed | **1357 passed, 1 skipped** (a retired check in `test_evidence_run.py`) |
+| no anvil | **1293 passed, 65 skipped**: the 65 tests that need the local chain show as `s` |
 
 A skipped test did not pass; it means its prerequisite was unavailable. The counts grow as tests are added;
 `python -m pytest --collect-only -q | tail -1` gives the current total. Every live test uses the **local** chain only and
@@ -424,6 +424,7 @@ is rolled back afterwards (`evm_snapshot` / `evm_revert`), so the wallet is unch
 | `tests/test_state.py` | 294 | 0 | The firewall's memory (issue #13): the strict `rules.yaml` loader, exact 24-hour spending in a tamper-evident ledger, the velocity count, and the kill switch (survives a restart, fails safe), also under parallel use. |
 | `tests/test_tokens.py` | 22 | 0 | HMAC approval tokens (issue #16). A valid token passes; a wrong amount, recipient, action, token contract or request id, and an expired, tampered or foreign-secret token all fail. |
 | `tests/test_tokens_hardening.py` | 7 | 0 | A token works once; a failed check does not use it up; the kill switch cancels tokens that were already issued. |
+| `tests/test_persistence.py` | 32 | 0 | Spent approval tokens and the velocity window live in small files and survive a restart (also a real second process); an unreadable token file refuses every token, an unreadable velocity file means *ask*; the real `logs/` folder is never touched by a test or the red-team runner. |
 | `tests/test_audit.py` | 29 | 0 | The hash-chained audit log (issue #17). Editing, deleting, inserting, re-ordering or duplicating a line is detected; secrets are redacted; threads and processes can share one log. |
 | `tests/test_audit_locking.py` | 8 | 0 | The audit log stays intact when several processes write at once, including on the Windows path and on drives without `flock` (those code paths are forced on Linux). |
 | `tests/test_anchor_audit.py` | 40 | 7 | Anchoring the audit head on a chain and verifying it; a cut-off, rewritten or forged log is caught. |
@@ -433,7 +434,7 @@ is rolled back afterwards (`evm_snapshot` / `evm_revert`), so the wallet is unch
 | Test file | Tests | Skipped without anvil | What it proves |
 |---|---|---|---|
 | `tests/test_redteam_data.py` | 18 | 0 | The 55 cases are well formed, and a small reference model of the rule table agrees with every expected answer, so the data cannot quietly contradict the rules. |
-| `tests/test_redteam_runner.py` | 31 | 1 | The runner reports 55/55 on the real firewall; it notices a firewall that allows everything, one that denies everything, a removed rule and a changed limit; cases stay isolated; it refuses any chain but the local one. The live test sends the same attacks to both agents on anvil. |
+| `tests/test_redteam_runner.py` | 38 | 2 | The runner reports 55/55 on the real firewall; it notices a firewall that allows everything, one that denies everything, a removed rule and a changed limit; cases stay isolated; it refuses any chain but the local one. The live test sends the same attacks to both agents on anvil. |
 
 **Wallet engine** (`wallet_engine/`, Person 1)
 
@@ -442,7 +443,7 @@ is rolled back afterwards (`evm_snapshot` / `evm_revert`), so the wallet is unch
 | `tests/test_erc20.py` | 44 | 4 | Amount conversion both ways; building transfer, approve, unlimited approve and revoke transactions; decoding calldata; reading balances and allowances. |
 | `tests/test_chain_approvals_fallback.py` | 18 | 0 | On a public network whose RPC refuses wide log searches, `approvals()` falls back to the known spenders; on the local chain it never does. |
 | `tests/test_simulate_execute.py` | 27 | 10 | The dry run (`simulate`) and the sender (`execute`). What a token must bind to; `execute` refuses anything without a matching approval token; a plan cannot be swapped after approval; the live tests send real test transactions. |
-| `tests/test_execute_pending.py` | 17 | 0 | A broadcast transaction without a receipt is reported *pending*, not failed; two sends never share a nonce (fake node). |
+| `tests/test_execute_pending.py` | 21 | 0 | A broadcast transaction without a receipt is reported *pending*, not failed; two sends never share a nonce (fake node). |
 | `tests/test_redact.py` | 12 | 0 | Error text never shows an RPC URL, an API key or a private key. |
 | `tests/test_testusd_local.py` | 6 | 6 | TestUSD behaves like a standard ERC-20: transfers, limited and unlimited approvals (unlimited is never used up), revoke. |
 | `tests/test_drainer.py` | 17 | 12 | The attacker script refuses any chain but local 31337 and never shows its key. Against a naive wallet it drains what a granted allowance allows, and revoking stops it. |
@@ -458,11 +459,12 @@ is rolled back afterwards (`evm_snapshot` / `evm_revert`), so the wallet is unch
 | `tests/test_resolve.py` | 25 | 0 | Token symbol to contract address, and 0x-address checks (a mistyped checksum is caught), shared by both agents. |
 | `tests/test_naive_agent.py` | 3 | 0 | The deliberately unsafe agent refuses any chain but local 31337 and, with no firewall, executes what the model extracted. |
 | `tests/test_api.py` | 15 | 0 | The HTTP backend with stand-ins: execute sends only on allow; an ask needs a separate confirm; a decision sent by the browser is ignored; a replayed confirm is rejected; the LLM key is never returned. |
+| `tests/test_api_operator.py` | 17 | 0 | The operator key: Confirm and kill-switch OFF need `X-Operator-Token`; missing and wrong get one 403 text; an unset or short token answers 503; kill switch ON stays open; the key never appears in a response or log. |
 | `tests/test_api_address_check.py` | 15 | 0 | The API forms apply the chat agent's full-address and EIP-55 checks (a wrong mixed-case checksum is a 400). |
 | `tests/test_api_host_check.py` | 13 | 0 | Only the Host names `localhost` and `127.0.0.1` are served, so a web page using DNS rebinding cannot call the API as the owner. |
 | `tests/test_api_token_hidden.py` | 4 | 0 | The approval token is never sent to the browser (execute, confirm, chat). |
 | `tests/test_secret_leaks.py` | 6 | 0 | A broken RPC URL (it carries the API key) never reaches an API error, a chat reply or the evidence CSV. |
-| `tests/test_attack_replay.py` | 30 | 1 | The attack replay: one extracted action goes to both agents, real model or script (labelled), local-only guard. |
+| `tests/test_attack_replay.py` | 39 | 2 | The attack replay: one extracted action goes to both agents, real model or script (labelled), local-only guard. |
 | `tests/test_live_agents_api.py` | 13 | 13 | Both agents and the API against the real firewall and a real local chain. The same text is allowed from the chat and denied from a public post; an unlimited approval is denied; Preview changes nothing; a naive wallet is drained after it signs an unlimited approval. |
 | `tests/test_e2e.py` | 5 | 5 | The five protected-agent scenarios on local Anvil (allow, ask then confirm once, PRV-01, APR-01, KIL-01). |
 | `tests/test_contract.py` | 3 | 0 | The shared contract: the data types keep their fields and every facade function keeps its signature. |

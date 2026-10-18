@@ -76,13 +76,19 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 Code and evidence are complete; what remains is the presentation material and sending it.
 - [x] Shared types and contract test; wallet engine (plan, simulate, execute, binding, pending state); TestUSD on local Anvil and Sepolia
 - [x] Firewall: policy engine with 16 rules, strict rules loader, persistent HMAC-chained spend ledger, kill switch, provenance,
-      single-use HMAC approval tokens, hash-chained audit log with cross-process locking (Linux, Windows, portable), `preview()`
-- [x] Agent (strict intent parser, protected agent, naive agent, synthetic feed, attack replay), FastAPI backend, React UI
+      single-use HMAC approval tokens (spent signatures and the velocity window are kept in small files and survive a restart),
+      hash-chained audit log with cross-process locking (Linux, Windows, portable), `preview()`
+- [x] Agent (strict intent parser, protected agent, naive agent, synthetic feed, attack replay that rolls the local chain back after
+      every run), FastAPI backend, React UI. Operator key: Confirm and kill-switch OFF need `OPERATOR_TOKEN` (header `X-Operator-Token`,
+      field "Operator key" in the UI); add `OPERATOR_TOKEN=<random 32+ characters>` to your own `.env`
 - [x] Red-team: 40 attacks + 15 benign cases, runner and report (`python -m firewall.redteam.run`): 55/55, 0/40 attacks let through,
-      0/15 wrongly denied; both agents on Anvil: protected executes 0/40, naive executes 38/40
+      0/15 wrongly denied; both agents on Anvil: protected executes 0/40, naive executes 38/40 (`--agents` needs a fresh chain and
+      refuses a used one)
 - [x] Sepolia evidence run through the real pipeline: 6 transactions sent, 2 denied (`evidence/tx_hashes.csv`); audit head anchored on Sepolia
-- [x] Tests: 1288 passed / 1 skipped with Anvil, 1226 passed / 63 skipped without
-- [x] Documents: `README.md`, `docs/technical_overview.md`, `docs/security_self_assessment.md`, `docs/tech_chain_layer.md`
+- [x] Tests: 1357 passed / 1 skipped with Anvil, 1293 passed / 65 skipped without
+- [x] Documents: `README.md`, `docs/technical_overview.md`, `docs/security_self_assessment.md` (now with section 9, compliance posture),
+      `docs/tech_chain_layer.md`. `requirements.lock` is the real dependency closure (66 packages). NOTE: `docs/technical_overview.md`
+      still shows the older test totals; its owner updates it.
 - [ ] Deck (10 minutes at most), demo video (5 minutes at most, no keys on screen), final email: drafts in `docs/presentation_outline.md`,
       `docs/demo_video_script.md`, `docs/submission_package.md`. Issue #28 stays open until these exist.
 - [ ] Send the package to wangyr@pbcsf.tsinghua.edu.cn: deadline 20 Oct 2026 23:59 Beijing time, aim for noon; code freeze 19 Oct.
@@ -92,10 +98,14 @@ timeout), R-10 (replay wording on an outage), R-11 (`--verify` on a malformed re
 
 ## Changes made outside the author's own folder (to be announced to Person 2 and Person 3)
 Rule above: only edit your own folder. On 17-18 Oct 2026 Person 1 (with Person 2 and Person 3 busy) also changed:
-- Person 2's `firewall/tokens.py` (a used approval token stays used: canonical expiry, memory keyed by signature) and
-  `firewall/policy.py` (VEL-01 wording only); new `shared/redact.py` (error-text redaction, a new file, `shared/types.py` untouched).
-- Person 3's `agent/` (replay, `handle_intent`, intent parser, redaction), `api/main.py` (Host allowlist, address checks, token never
-  sent to the browser, pending state) and `ui/src/App.jsx` (replay card, pending state).
+- Person 2's `firewall/tokens.py` (a used approval token stays used: canonical expiry, memory keyed by signature; spent signatures
+  persisted in `logs/used_tokens.jsonl`), `firewall/state.py` (the velocity window persisted in `logs/velocity.jsonl`; unreadable file
+  = at the limit), `firewall/policy.py` (VEL-01 wording only) and `firewall/redteam/run.py` (per-case temp paths for both files; the
+  `--agents` fresh-wallet check) plus `firewall/redteam/README.md`; `shared/redact.py` (error-text redaction, `OPERATOR_TOKEN` added to
+  its patterns; `shared/types.py` untouched).
+- Person 3's `agent/` (replay with snapshot/revert, `handle_intent`, intent parser, redaction), `api/main.py` (Host allowlist, address
+  checks, token never sent to the browser, pending state, the operator key) and `ui/src/App.jsx` / `ui/src/api.js` (replay card, pending
+  state, Operator key field).
 Each change has tests and is in git history. Person 2 and Person 3 must read them before submission; nothing here changes a rule
 threshold, the allowlist, `rules.yaml` or `shared/types.py`.
 

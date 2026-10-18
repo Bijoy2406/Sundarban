@@ -17,7 +17,7 @@ required to send; and every decision is written to a hash-chained audit log.
 | Attacks denied / held for a human / let through | 36 / 4 / **0** of 40 | same |
 | Legitimate requests wrongly denied | **0/15** (5/15 needed a confirmation) | same |
 | Same attacks through both real agents (local Anvil) | protected agent executed **0/40**; naive agent executed **38/40** | `python -m firewall.redteam.run --agents --no-write` |
-| Automated tests | **1288 passed, 1 skipped** with Anvil; 1226 passed, 63 skipped without | `python -m pytest -q` |
+| Automated tests | **1357 passed, 1 skipped** with Anvil; 1293 passed, 65 skipped without | `python -m pytest -q` |
 | Real Sepolia transactions through the full pipeline | **6 sent, 2 denied** (table in section 7.3; the wallet's complete history of 15 sends is in 7.4) | `evidence/tx_hashes.csv` |
 | Audit-log head anchored on Sepolia | verified `RESULT: OK` | `ACTIVE_NETWORK=sepolia python wallet_engine/scripts/anchor_audit.py --verify` |
 
@@ -199,8 +199,8 @@ LLM Applications 2025*.
 
 | Measurement | Result | Command |
 |---|---|---|
-| Full suite with local Anvil and TestUSD deployed | **1288 passed, 1 skipped** (about 33 s) | `anvil` (another terminal), `python wallet_engine/scripts/deploy.py`, `python -m pytest -q` |
-| Full suite without Anvil | **1226 passed, 63 skipped** (the 63 need a chain and show as skipped, not passed) | `python -m pytest -q` |
+| Full suite with local Anvil and TestUSD deployed | **1357 passed, 1 skipped** (about 47 s) | `anvil` (another terminal), `python wallet_engine/scripts/deploy.py`, `python -m pytest -q` |
+| Full suite without Anvil | **1293 passed, 65 skipped** (the 65 need a chain and show as skipped, not passed) | `python -m pytest -q` |
 | The one skip with Anvil | a retired check in `tests/test_evidence_run.py` that applied only to the old stub firewall | n/a |
 | UI build | succeeds (Vite) | `cd ui && npx vite build` |
 | Shared contract (types and signatures) | passes | `python -m pytest tests/test_contract.py -v` |
@@ -221,7 +221,7 @@ Per-file test counts and what each file proves are in the README (section "Test 
 
 ```bash
 python -m firewall.redteam.run --no-write          # firewall only; needs no chain and no API key
-python -m firewall.redteam.run --agents --no-write # also both agents; needs Anvil + deployed token; sends local test transactions only
+python -m firewall.redteam.run --agents --no-write # also both agents; needs a FRESH Anvil + deployed token (it refuses a used chain); sends local test transactions only
 ```
 
 The full per-case report is `evidence/redteam_report.md`. **What it does not show:** (a) it tests the firewall with
