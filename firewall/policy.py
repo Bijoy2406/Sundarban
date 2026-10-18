@@ -305,8 +305,8 @@ def _assess(req: ActionRequest, plan, sim, confirming: bool):
         used = state.actions_in_window()
         if used >= rules["velocity_max_actions"]:
             minutes = rules["velocity_window_seconds"] // 60
-            add("VEL-01", ASK, f"{used} actions were already made in the last {minutes} minutes, "
-                               f"which is more than the {rules['velocity_max_actions']} allowed, so a person must check this one.")
+            add("VEL-01", ASK, f"At least {rules['velocity_max_actions']} actions were already made in the last {minutes} minutes "
+                               f"({used} so far), so a person must check this one.")
 
     return findings, binding
 
