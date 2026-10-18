@@ -11,6 +11,7 @@ It refuses (raises ExecutionRefused, NOTHING is sent) unless ALL of these hold:
 
 The private key comes from .env (chain.key_var()) and is never logged or returned.
 """
+import logging
 import os
 import threading
 
@@ -52,13 +53,19 @@ class ExecutionPending(RuntimeError):
                          f"Check it on the block explorer before trying again; do not send it twice.")
 
 
+_log = logging.getLogger("wallet_engine.execute")
+
+
 def _audit(event: dict) -> None:
-    """Best effort: logging must never break (or hide) a transaction."""
+    """Best effort, but never silent. The firewall DECISION is audited strictly (no entry, no token); these
+    transaction records (EXECUTE_REFUSED / TX_SENT / TX_PENDING / TX_FAILED) must never block or hide a transaction
+    that already happened, so a failed write is logged as a warning instead of raised. The message is redacted."""
     try:
         from firewall import audit
         audit.log(event)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("audit record %s for request %s could not be written: %s",
+                     event.get("event"), event.get("request_id"), redact(exc))
 
 
 def _refuse(decision, reason: str):

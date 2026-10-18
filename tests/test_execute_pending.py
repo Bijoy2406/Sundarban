@@ -258,3 +258,58 @@ def test_a_timeout_or_dropped_connection_stays_pending(node, error):
     with pytest.raises(execute.ExecutionPending) as caught:
         wallet_engine.execute(plan, allow(req, plan))
     assert caught.value.tx_hash.startswith("0x") and len(caught.value.tx_hash) == 66
+
+
+# ------------------------------------------------------------------ transaction records are best effort, but never silent
+
+def _failing_audit(monkeypatch, message):
+    def broken(event):
+        raise OSError(message)
+    monkeypatch.setattr(audit, "log", broken)
+
+
+def test_a_failed_transaction_record_is_logged_as_a_warning_and_the_send_still_completes(node, monkeypatch, caplog):
+    node(FakeEth())
+    _failing_audit(monkeypatch, "disk full while writing https://rpc.example.invalid/v2/FAKEKEY0123456789 now")
+    req, plan = make_plan()
+    with caplog.at_level("WARNING", logger="wallet_engine.execute"):
+        tx_hash = wallet_engine.execute(plan, allow(req, plan))
+    assert tx_hash == "0x" + "ab" * 32                                   # best effort: the transaction is not blocked
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert warnings and "TX_SENT" in warnings[0].getMessage() and req.request_id in warnings[0].getMessage()
+    assert "FAKEKEY0123456789" not in caplog.text and "rpc.example.invalid" not in caplog.text   # redacted
+
+
+def test_every_kind_of_transaction_record_warns_when_it_cannot_be_written(node, monkeypatch, caplog):
+    _failing_audit(monkeypatch, "no space left")
+    node(SendFails(TimeoutError("read timed out")))
+    req, plan = make_plan()
+    with caplog.at_level("WARNING", logger="wallet_engine.execute"):
+        with pytest.raises(execute.ExecutionPending):
+            wallet_engine.execute(plan, allow(req, plan))
+    assert "TX_PENDING" in caplog.text
+    caplog.clear()
+    node(FakeEth(wait=lambda: type("Receipt", (), {"status": 0})()))
+    req, plan = make_plan()
+    with caplog.at_level("WARNING", logger="wallet_engine.execute"):
+        with pytest.raises(execute.ExecutionFailed):
+            wallet_engine.execute(plan, allow(req, plan))
+    assert "TX_SENT" in caplog.text and "TX_FAILED" in caplog.text
+
+
+def test_a_refused_execution_also_warns_when_its_record_fails(node, monkeypatch, caplog):
+    node(FakeEth())
+    _failing_audit(monkeypatch, "no space left")
+    req, plan = make_plan()
+    with caplog.at_level("WARNING", logger="wallet_engine.execute"):
+        with pytest.raises(execute.ExecutionRefused):
+            wallet_engine.execute(plan, Decision(req.request_id, "deny", ["PRV-01"], ["no"], None))
+    assert "EXECUTE_REFUSED" in caplog.text
+
+
+def test_a_working_audit_log_produces_no_warning(node, caplog):
+    node(FakeEth())
+    req, plan = make_plan()
+    with caplog.at_level("WARNING", logger="wallet_engine.execute"):
+        wallet_engine.execute(plan, allow(req, plan))
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
