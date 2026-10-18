@@ -112,9 +112,13 @@ these hold:
 4. a fresh simulation, run immediately before sending, still succeeds.
 
 Then it signs with the key for the active network (EIP-1559 fees when the chain supports them, gas limit +20% capped at 500,000),
-sends, waits for the receipt (up to 120 seconds) and raises `ExecutionFailed` if the receipt status is 0.
-It writes `EXECUTE_REFUSED` / `TX_SENT` / `TX_FAILED` events to the audit log on a best-effort basis; a
-logging error can never block or hide a transaction.
+sends under a lock (the nonce is read and the transaction broadcast as one step, so two requests never share a nonce),
+waits for the receipt (up to 120 seconds) and raises `ExecutionFailed` if the receipt status is 0. If the transaction
+was broadcast but no receipt arrived in time it raises `ExecutionPending` carrying the hash: the outcome is unknown, so
+it is reported as *pending*, never as failed, and must not be sent again.
+It writes `EXECUTE_REFUSED` / `TX_SENT` / `TX_PENDING` / `TX_FAILED` events to the audit log on a best-effort basis; a
+logging error can never block or hide a transaction. Error text that reaches a person goes through `shared/redact.py`,
+which hides URLs and the values of secret settings (an RPC URL carries its API key).
 
 ## 6. Why `execute` needs an approval token
 
@@ -157,15 +161,18 @@ Hard limits, checked in this order before any transaction is sent:
 | Test money | Test tokens on Anvil and Sepolia only. Never audited for production or real funds. |
 | Simulation | `eth_call` shows the result on the current state. It cannot predict what other transactions do before ours is mined (ordering, front-running). The pre-send re-simulation reduces but does not remove this. |
 | Trust in the node | A single RPC provider (Alchemy for Sepolia) answers all reads and receives all transactions. A dishonest node could mislead the simulation. |
-| Approval list | Found by scanning `Approval` events from the deployment block, then reading current allowances. Efficient for a demo-sized chain, not for long histories. |
+| Approval list | Found by scanning `Approval` events from the deployment block, then reading current allowances. Efficient for a demo-sized chain, not for long histories. A free Sepolia RPC refuses wide log searches, so there (and only there) it falls back to checking the known spenders: the allowlist and the local attacker account. |
 | Single wallet | One signing key per network; no multi-signature or hardware wallet support. |
-| Dependency on the firewall | The chain layer is only as safe as `verify_token`. The HMAC tokens are real (HMAC-SHA256 with expiry, constant-time compare), but the firewall's `evaluate()` and `confirm()` still hand out the old stub string, which `verify_token` rejects, so `execute()` refuses until the policy engine issues real tokens (issue #15). |
+| Dependency on the firewall | The chain layer is only as safe as `verify_token`. The tokens are real (HMAC-SHA256 with expiry, constant-time compare, single use, refused while the kill switch is on) and the policy engine (`firewall/policy.py`) issues them for the calldata fields `binding.py` reads. Code running inside the same process can still mint a token, because the secret lives there (risk R-04 in the security self-assessment). |
 | Key storage | Keys sit in a local `.env`. Acceptable for test keys; a real deployment would need a managed vault or hardware signer. |
 
 ## 9. Testing
 
-`python -m pytest -q` runs **70 tests** with a local Anvil and the token deployed (38 pass and 32 skip
-without Anvil, because the live tests skip themselves). Live tests are rolled back with
+The chain layer's tests are `tests/test_erc20.py` (14), `tests/test_simulate_execute.py` (27),
+`tests/test_testusd_local.py` (6), `tests/test_drainer.py` (17), `tests/test_execute_pending.py` (6),
+`tests/test_chain_approvals_fallback.py` (6) and `tests/test_evidence_run.py` (12). The whole project suite is
+**1170 passed, 1 skipped** with a local Anvil and the token deployed, and 1108 passed, 63 skipped without a chain
+(the live tests skip themselves; a skipped test did not pass). Live tests are rolled back with
 `evm_snapshot` / `evm_revert` and run on the local chain only.
 
 | Area | What is proven |
@@ -174,16 +181,17 @@ without Anvil, because the live tests skip themselves). Live tests are rolled ba
 | Calldata / binding | Transfer, approve, revoke and unlimited decode correctly; malformed calldata is rejected |
 | Token | Metadata and supply; over-balance reverts; limited approval is consumed; unlimited is never used up; revoke stops it |
 | `simulate` | Success; revert reason surfaced; outflow read from calldata; wrong chain, non-contract, ETH value, junk calldata, missing gas money, no node |
-| `execute` | Real transfer, approve and revoke; refuses non-allow decisions, missing or mismatched tokens (amount and recipient swaps), wrong wallet or chain, bad gas, failing simulation, no node; nothing is sent on any refusal |
+| `execute` | Real transfer, approve and revoke; refuses non-allow decisions, missing or mismatched tokens (amount and recipient swaps), wrong wallet or chain, bad gas, failing simulation, no node; nothing is sent on any refusal; a broadcast transaction without a receipt is reported pending |
 | Drainer | Works with an unlimited allowance and is repeatable; respects limited allowances; refuses with no or revoked allowance, bad amounts, non-local network, wrong chain id, no key; never prints the key |
 
-## 10. Evidence collected so far
+## 10. Evidence
 
 | Evidence | Where |
 |---|---|
 | Token deployments (local and Sepolia) | `evidence/deployments.json` |
 | Sepolia deployment | [`0x0f62eea9…af4a3d`](https://sepolia.etherscan.io/tx/0x0f62eea9a59561bfea4573eabba7b82c6a7cd7686224d83746fdd8f956af4a3d) |
-| Sepolia transfer of 1 TUSD through `plan → simulate → execute` | [`0x1c886a64…d4599`](https://sepolia.etherscan.io/tx/0x1c886a6470c45f802b952c675fb72951edf69df76eb19f4839d03b2b351d4599) |
+| Evidence run through the real firewall: 6 transactions sent, 2 actions denied | `evidence/tx_hashes.csv`; hashes and links in `docs/security_self_assessment.md`, section 7.3 |
+| Audit log of that run, and its head anchored on Sepolia | `evidence/audit_sepolia.jsonl`, `evidence/audit_anchor_sepolia.json`; transaction [`0xf21f8ed7…61ccf7`](https://sepolia.etherscan.io/tx/0xf21f8ed702635320a4d1ea57a44cbd6073a9c176cea2147de61a70b36061ccf7) |
 
-The final evidence run (5 or more transactions through the **real** firewall, plus one firewall-denied
-action) is tracked in issue #11 and is waiting for the firewall's real rules and tokens (#15, #16).
+Reproduce the checks with `python scripts/verify_audit.py evidence/audit_sepolia.jsonl` and
+`ACTIVE_NETWORK=sepolia python wallet_engine/scripts/anchor_audit.py --verify` (read-only).

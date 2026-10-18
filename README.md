@@ -12,23 +12,61 @@ about $150K of tokens. No key was stolen; the AI simply trusted text it should n
 Our demo replays that attack against a naive agent (it loses test funds on a local chain) and
 against Sundarban (blocked, with the reason).
 
----
+**The name.** Like the Sundarbans mangrove forest absorbs the storm before it reaches the land, our firewall
+absorbs the attack before it reaches the funds.
 
-## Implementation status
+**The result in three lines**
 
-The repository now contains the main wallet engine, firewall, agent, API, and React UI components. Feature tests and the end-to-end test file are part of the repository; **test results depend on the environment**. Tests that require Anvil and a deployed TestUSD contract may be skipped when those prerequisites are unavailable. Do not treat skipped tests as proof of a live transaction flow.
+1. The same 40 attacks, sent to two agents on a local chain: the naive agent executes **38**, Sundarban executes **0**.
+2. In the red-team suite the firewall denies 36 outright, holds 4 for a human and lets **0 of 40** through, while
+   wrongly blocking **0 of 15** legitimate requests.
+3. **6 real Sepolia transactions** went through the full pipeline (2 more were denied), and the audit log's head hash
+   is anchored on Sepolia, so a rewrite or cut-off of that log is detectable.
 
-| Component | Current implementation |
+| Read next | |
+|---|---|
+| [Technical documentation](docs/technical_overview.md) | architecture, the decision algorithm, security design, how to run it |
+| [Security self-assessment](docs/security_self_assessment.md) ([PDF](docs/security_self_assessment.pdf)) | permission tiers, every rule and threshold, OWASP mapping, known risks and what is not solved |
+| [Chain layer](docs/tech_chain_layer.md) | how transactions are planned, simulated and sent |
+
+## Evidence at a glance
+
+| Evidence | Result | Reproduce |
+|---|---|---|
+| Automated tests (local Anvil + TestUSD) | **1170 passed, 1 skipped** | `python -m pytest -q` |
+| Automated tests (no chain) | 1108 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Red-team suite (40 attacks, 15 legitimate) | 55/55 as expected; 36 denied, 4 held, **0 let through**; **0/15** wrongly denied | `python -m firewall.redteam.run --no-write` |
+| Same attacks through both real agents | protected agent executed **0/40**; naive agent executed **38/40** | `python -m firewall.redteam.run --agents --no-write` |
+| Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` |
+| Audit log of that run | 16 entries, chain intact | `python scripts/verify_audit.py evidence/audit_sepolia.jsonl` |
+| Audit head anchored on Sepolia | `RESULT: OK` | `ACTIVE_NETWORK=sepolia python wallet_engine/scripts/anchor_audit.py --verify` (read-only) |
+
+The six Sepolia transactions (wallet `0xB89C8A9826cac01E3b4A01873Bd0C27553567609`, TestUSD `0x81EBDCC80E45b57e774e13Ee4725963A872f0f47`):
+
+| # | Action | Firewall | Transaction |
+|---|---|---|---|
+| 1 | transfer 10 TUSD to Alice | allow | [`0xd618054f…ee1eef`](https://sepolia.etherscan.io/tx/0xd618054f5ef685458def4764e770906e3b9af71b3d987c737783bbf8e2ee1eef) |
+| 2 | transfer 30 TUSD to Bob | allow | [`0xc9e0d856…d5db74`](https://sepolia.etherscan.io/tx/0xc9e0d85681c3578e4fb10455e7b7b21c99d04703b6abaf3e644d3af1bbd5db74) |
+| 3 | approve 20 TUSD for Alice | allow | [`0x852eeff0…08d7d0`](https://sepolia.etherscan.io/tx/0x852eeff047f32dd53d8d00d16e4319168f955384aa0f524ed031a930ff08d7d0) |
+| 4 | revoke Alice | allow | [`0xbc8af874…9c7000`](https://sepolia.etherscan.io/tx/0xbc8af8740cc5546fe9b88a4bffb3e8e38300d7fde4a4f6ad0aa6748e0d9c7000) |
+| 5 | transfer 200 TUSD to Bob | ask (LIM-02), person confirmed | [`0x148f154e…47068f0bc`](https://sepolia.etherscan.io/tx/0x148f154eb921fa0d5eb24b1460241dd67f8e3d9d9a1c2b6824342ed47068f0bc) |
+| 6 | transfer 1 TUSD to Alice | ask (VEL-01), person confirmed | [`0x0ee5931f…7560dfc9`](https://sepolia.etherscan.io/tx/0x0ee5931f3bc4d7696ecca703c81dcc1b47fe0a5b2febeb341a4188e57560dfc9) |
+
+The two denied actions (an unlimited approval, and an instruction that came from a public post) have no transaction by
+design. The audit-head anchor is
+[`0xf21f8ed7…61ccf7`](https://sepolia.etherscan.io/tx/0xf21f8ed702635320a4d1ea57a44cbd6073a9c176cea2147de61a70b36061ccf7).
+
+## Components
+
+| Component | What it is |
 |---|---|
 | Shared contract | `shared/types.py`; guarded by `tests/test_contract.py` |
-| TestUSD ERC-20 | Solidity contract and Foundry deploy script; local Anvil and Sepolia configuration are supported |
+| TestUSD ERC-20 | Solidity contract and Foundry deploy script; local Anvil and Sepolia |
 | Wallet engine | Planning, simulation, transaction execution, balances, approvals and calldata binding |
-| Firewall | Deterministic policy evaluation, explicit confirmation, HMAC-bound approval tokens, kill switch and audit logging |
+| Firewall | Deterministic policy (16 rules), explicit confirmation, HMAC-bound single-use approval tokens, kill switch, persistent spend ledger, hash-chained audit log |
 | Agent | Strict intent parsing and protected orchestration; provenance is assigned by trusted code |
-| Naive agent + drainer | Intentionally unsafe demo path, restricted to local Anvil chain ID `31337` |
-| Backend + UI | FastAPI endpoints and React/Vite wallet, confirmation, audit and attack-replay surfaces |
-
-Check the actual test output from your environment before making claims about coverage. The Windows audit-log corruption reported earlier was fixed (issue #17, cross-process lock); `tests/test_audit_locking.py` forces the Windows and portable lock paths with several writer processes. See [Testing and known limitations](docs/technical_overview.md#testing-and-known-limitations).
+| Naive agent + drainer + replay | Intentionally unsafe demo path, restricted to local Anvil chain id `31337` |
+| Backend + UI | FastAPI endpoints and React/Vite wallet, confirmation, audit and attack-replay screens |
 
 ---
 
@@ -193,18 +231,17 @@ Expected: `"backend":"ok"`, `"connected":true`, `"chain_id":31337`, `"token_depl
 | ✓ Backend, ✓ Chain: local (31337), ✓ TestUSD deployed | backend, anvil and token are fine |
 | ✗ LLM configured | normal until you fill `LLM_MODEL` and `LLM_API_KEY` |
 | Wallet card: ETH ≈ 10000, TUSD 1000000 | balances are read live from the chain |
-| **Preview** (transfer 10 to the prefilled address) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and the firewall decision (an empty allowlist gives an amber **ASK** card; with Alice on the allowlist it is a green **ALLOW**) |
+| **Preview** (transfer 10 to the prefilled address, which is Alice) | shows "Send 10 TUSD to 0x7099...79C8", `transfer(address,uint256)`, real calldata, a gas estimate, and the firewall decision: a green **ALLOW** (Alice is on the allowlist in `firewall/rules.yaml`); an address that is not on the allowlist gives an amber **ASK** |
 | **Test connection** | with LLM settings filled: "✓ <model> replied OK in … ms" |
 
-The preview uses the transaction planner and simulation result. Execution is handled by the server API, which re-runs plan → simulate → firewall evaluation; the browser cannot authorize a transaction by sending its own decision. An `ask` result requires a separate confirmation action.
+Preview calls `firewall.preview`, which has **no side effects** (it is not counted, records no spending and issues no token), so previewing can never change a later decision. **Execute** is handled by the server, which re-runs plan → simulate → firewall evaluation; the browser cannot authorize a transaction by sending its own decision. An `ask` result needs a separate **Confirm** click.
 
 **Tests:**
 ```bash
 python -m pytest -q
 ```
-With anvil running and the token deployed: **all pass**. Without anvil: the chain tests are
-**skipped** (shown as `s`), the rest pass. A failure in `tests/test_contract.py` means someone
-changed the shared data types or function signatures.
+With anvil running and the token deployed: **1170 passed, 1 skipped** (the one skip is a retired check that applied only to an older firewall). Without anvil: **1108 passed, 63 skipped** (the chain tests are skipped, shown as `s`, and a skipped test did not pass).
+A failure in `tests/test_contract.py` means someone changed the shared data types or function signatures.
 
 ---
 
@@ -247,7 +284,8 @@ python scripts/verify_audit.py          # OK: N entries, head <hash>   (exit 0) 
 python scripts/verify_audit.py tail     # newest entries
 ```
 Deleting the *last* entries leaves a valid shorter chain; to detect that, keep the head hash somewhere
-else and call `audit.verify(expected_head=...)`.
+else and call `audit.verify(expected_head=...)`. What the log proves and what it does not is in the
+[security self-assessment](docs/security_self_assessment.md#5-controls-beyond-the-rules).
 
 **Anchored on Sepolia.** The head hash of the submitted evidence log is also written into a Sepolia
 transaction (a zero-value self-transaction whose data is `sundarban-audit-v1:` + the 32-byte head), so a
@@ -297,15 +335,22 @@ including one that needs a human confirm, and 2 that must be denied) and records
 `evidence/tx_hashes.csv`, with the audit log copied to `evidence/audit_<network>.jsonl`.
 
 ```bash
-python wallet_engine/scripts/evidence_run.py --temp-allowlist --auto-confirm      # rehearsal on local anvil
-ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes         # the real run (needs the real firewall, #15)
+# rehearsal on local anvil: write to scratch files so the submitted evidence/ files stay untouched
+AUDIT_LOG_PATH=/tmp/rehearsal_audit.jsonl python wallet_engine/scripts/evidence_run.py --temp-allowlist --auto-confirm --csv /tmp/rehearsal_tx.csv
+# the real run: sends real Sepolia transactions and APPENDS to evidence/tx_hashes.csv
+ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes
 ```
 On Sepolia it refuses to send without `--yes`, ends with `RESULT: OK` only if 5+ transactions were sent and
-at least one action was denied, and records scripted confirmations as "scripted" in the CSV.
+at least one action was denied, and records scripted confirmations as "scripted" in the CSV. The submitted run
+(`evidence/tx_hashes.csv`) is already recorded; do not run the Sepolia command again unless you intend to spend testnet gas and add rows to that file. Its sixth
+scenario is *expected* to be asked (VEL-01, the sixth action within 10 minutes), and the denied rows also list
+VEL-01 because every request counts towards the velocity limit.
 
 ## 11. Documentation and submission materials
 
-- [Technical overview](docs/technical_overview.md): architecture, chain layer, firewall, agent flow and known limitations.
+- [Technical documentation](docs/technical_overview.md): system architecture, the decision algorithm, security design, API, how to run it.
+- [Security self-assessment](docs/security_self_assessment.md): permission tiers, every firewall rule with its threshold, trust boundaries, OWASP LLM/Agentic mapping, the known-risk list and what is not solved.
+- [Chain layer](docs/tech_chain_layer.md): how transactions are planned, simulated and sent, and why `execute` needs an approval token.
 - [Presentation outline (under 10 minutes)](docs/presentation_outline.md): timed slide plan and key messages.
 - [Demo video script (under 5 minutes)](docs/demo_video_script.md): shot-by-shot narration and safety checklist.
 - [Submission package checklist and email draft](docs/submission_package.md): required attachments, unresolved evidence questions and a ready-to-review email.
@@ -326,43 +371,118 @@ cast chain-id --rpc-url http://127.0.0.1:8545
 cast call 0x5FbDB2315678afecb367f032d93F642f64180aa3 "balanceOf(address)(uint256)" 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --rpc-url http://127.0.0.1:8545
 ```
 
+## 14. Test cases
 
-## 14. Test-case index
-
-Run from the repository root with the Python environment activated:
+Run all of them (from the repository root, Python environment active):
 
 ```bash
-python -m pytest tests/test_contract.py -v
-python -m pytest tests/test_api.py -v
-python -m pytest tests/test_feed.py -v
-python -m pytest tests/test_intents.py -v
-python -m pytest tests/test_agent.py -v
-python -m pytest tests/test_naive_agent.py -v
-python -m pytest tests/test_drainer.py -v
-python -m pytest tests/test_policy.py -v
-python -m pytest tests/test_simulate_execute.py -v
 python -m pytest -q
 ```
 
-| Test file | Main purpose | Live-chain requirement |
-|---|---|---|
-| `tests/test_contract.py` | Shared dataclass fields, function signatures and firewall facade contract | No |
-| `tests/test_intents.py` | Strict intent schema, retry/refusal and untrusted-text delimiters | No |
-| `tests/test_agent.py` | Allow/ask/deny orchestration, confirmation and replay behavior with stubs | No |
-| `tests/test_naive_agent.py` | Naive-agent chain guard and deliberately unprotected execution path | Mocked |
-| `tests/test_feed.py` | Synthetic feed size, attack categories and trusted origin mapping | No |
-| `tests/test_api.py` | API endpoints, server-side decision enforcement and friendly errors | No (mocked) |
-| `tests/test_drainer.py` | Local-only drainer guard and behavior | Mocked/local-chain fixtures |
-| `tests/test_policy.py` | Deterministic firewall policy decisions | No |
-| `tests/test_simulate_execute.py` | Simulation, transaction binding and execution guards | Some tests require local chain |
-| `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No |
-| `tests/test_attack_replay.py` | Attack replay: one extracted action for both agents, real-model-or-script, local-only guard | Offline; one live test needs Anvil |
-| `tests/test_e2e.py` | The five protected-agent scenarios (allow, ask + confirm once, PRV-01, APR-01, KIL-01) | Yes, local Anvil |
-| `tests/test_redteam_runner.py` | Red-team runner (40 attacks + 15 benign = 55/55) and its metrics | Offline; one live test needs Anvil |
-| `tests/test_redact.py` | Error text never shows an RPC URL, an API key or a private key | No |
-| `tests/test_execute_pending.py` | A broadcast transaction without a receipt is *pending*, not failed; sends never share a nonce | No (fake node) |
-| `tests/test_anchor_audit.py` | Anchoring the audit head on-chain and verifying it; a cut-off, rewritten or forged log is caught | Offline; live part needs Anvil |
+| Situation | Result (measured 18 Oct 2026) |
+|---|---|
+| anvil running, token deployed | **1170 passed, 1 skipped** (a retired check in `test_evidence_run.py`) |
+| no anvil | **1108 passed, 63 skipped**: the 63 tests that need the local chain show as `s` |
 
-The full list of every test file, with test counts, is in [README_section_12_test_cases.md](README_section_12_test_cases.md). The red-team results are in [evidence/redteam_report.md](evidence/redteam_report.md) (`python -m firewall.redteam.run`).
+A skipped test did not pass; it means its prerequisite was unavailable. The counts grow as tests are added;
+`python -m pytest --collect-only -q | tail -1` gives the current total. Every live test uses the **local** chain only and
+is rolled back afterwards (`evm_snapshot` / `evm_revert`), so the wallet is unchanged when the tests finish.
+`tests/test_contract.py` fails if anyone changes a shared field or function signature.
 
-A skipped test did not pass; it means its prerequisite was unavailable. The E2E scenarios are not verified until they execute against the required local chain.
+### Which test file proves what
+
+**Firewall** (`firewall/`, Person 2)
+
+| Test file | Tests | Skipped without anvil | What it proves |
+|---|---|---|---|
+| `tests/test_policy_preview.py` | 267 | 0 | The policy engine (issue #15) and the main policy suite despite its name. Every rule fires when it should and only then; deny beats ask beats allow; reasons are plain English; an approval token is tied to the exact transaction; a confirmation works only after an ask, only once, and never overrides a deny; any crash or odd input ends in deny. |
+| `tests/test_policy.py` | 71 | 0 | An earlier, smaller version of the same suite; every one of its test names is also in `test_policy_preview.py`. |
+| `tests/test_preview_redteam.py` | 71 | 0 | `firewall.preview` has no side effects (no velocity count, no spend, no token, no open question, no audit entry), and on the 53 red-team cases that contain an action it leaves no trace and gives the same answer as `evaluate`. |
+| `tests/test_provenance.py` | 90 | 0 | Only `user_chat` is trusted (PRV-01). Every other origin, look-alike name, odd type or broken rules file is denied, and reasons never repeat outside text. |
+| `tests/test_state.py` | 294 | 0 | The firewall's memory (issue #13): the strict `rules.yaml` loader, exact 24-hour spending in a tamper-evident ledger, the velocity count, and the kill switch (survives a restart, fails safe), also under parallel use. |
+| `tests/test_tokens.py` | 22 | 0 | HMAC approval tokens (issue #16). A valid token passes; a wrong amount, recipient, action, token contract or request id, and an expired, tampered or foreign-secret token all fail. |
+| `tests/test_tokens_hardening.py` | 5 | 0 | A token works once; a failed check does not use it up; the kill switch cancels tokens that were already issued. |
+| `tests/test_audit.py` | 29 | 0 | The hash-chained audit log (issue #17). Editing, deleting, inserting, re-ordering or duplicating a line is detected; secrets are redacted; threads and processes can share one log. |
+| `tests/test_audit_locking.py` | 8 | 0 | The audit log stays intact when several processes write at once, including on the Windows path and on drives without `flock` (those code paths are forced on Linux). |
+| `tests/test_anchor_audit.py` | 27 | 7 | Anchoring the audit head on a chain and verifying it; a cut-off, rewritten or forged log is caught. |
+
+**Red-team** (`firewall/redteam/`, Person 2)
+
+| Test file | Tests | Skipped without anvil | What it proves |
+|---|---|---|---|
+| `tests/test_redteam_data.py` | 18 | 0 | The 55 cases are well formed, and a small reference model of the rule table agrees with every expected answer, so the data cannot quietly contradict the rules. |
+| `tests/test_redteam_runner.py` | 31 | 1 | The runner reports 55/55 on the real firewall; it notices a firewall that allows everything, one that denies everything, a removed rule and a changed limit; cases stay isolated; it refuses any chain but the local one. The live test sends the same attacks to both agents on anvil. |
+
+**Wallet engine** (`wallet_engine/`, Person 1)
+
+| Test file | Tests | Skipped without anvil | What it proves |
+|---|---|---|---|
+| `tests/test_erc20.py` | 14 | 4 | Amount conversion both ways; building transfer, approve, unlimited approve and revoke transactions; decoding calldata; reading balances and allowances. |
+| `tests/test_chain_approvals_fallback.py` | 6 | 0 | On a public network whose RPC refuses wide log searches, `approvals()` falls back to the known spenders; on the local chain it never does. |
+| `tests/test_simulate_execute.py` | 27 | 10 | The dry run (`simulate`) and the sender (`execute`). What a token must bind to; `execute` refuses anything without a matching approval token; a plan cannot be swapped after approval; the live tests send real test transactions. |
+| `tests/test_execute_pending.py` | 6 | 0 | A broadcast transaction without a receipt is reported *pending*, not failed; two sends never share a nonce (fake node). |
+| `tests/test_redact.py` | 12 | 0 | Error text never shows an RPC URL, an API key or a private key. |
+| `tests/test_testusd_local.py` | 6 | 6 | TestUSD behaves like a standard ERC-20: transfers, limited and unlimited approvals (unlimited is never used up), revoke. |
+| `tests/test_drainer.py` | 17 | 12 | The attacker script refuses any chain but local 31337 and never shows its key. Against a naive wallet it drains what a granted allowance allows, and revoking stops it. |
+| `tests/test_evidence_run.py` | 12 | 4 (3 run + 1 retired) | The Sepolia evidence script: refuses to send without `--yes`, covers the scenarios the issue asks for, expects the sixth action to be asked (VEL-01), writes an audit trail that verifies, and fails the run if a decision is wrong. |
+
+**Agents and API** (`agent/`, `api/`, Person 3)
+
+| Test file | Tests | Skipped without anvil | What it proves |
+|---|---|---|---|
+| `tests/test_agent.py` | 11 | 0 | The protected agent's pipeline with stand-ins: an allowed request is sent, an ask waits for a confirmation that cannot be replayed, a denied request never executes, a parse failure gets a polite answer. |
+| `tests/test_intents.py` | 33 | 0 | Messages become strict intent JSON (fake model): invalid output is retried once, then refused; untrusted text is fenced in and cannot close its wrapper. |
+| `tests/test_feed.py` | 7 | 0 | The synthetic public posts and NFT metadata (3 harmless, 6 attacks): their origin is set by code and cannot be influenced by their text. |
+| `tests/test_resolve.py` | 25 | 0 | Token symbol to contract address, and 0x-address checks (a mistyped checksum is caught), shared by both agents. |
+| `tests/test_naive_agent.py` | 3 | 0 | The deliberately unsafe agent refuses any chain but local 31337 and, with no firewall, executes what the model extracted. |
+| `tests/test_api.py` | 15 | 0 | The HTTP backend with stand-ins: execute sends only on allow; an ask needs a separate confirm; a decision sent by the browser is ignored; a replayed confirm is rejected; the LLM key is never returned. |
+| `tests/test_attack_replay.py` | 23 | 1 | The attack replay: one extracted action goes to both agents, real model or script (labelled), local-only guard. |
+| `tests/test_live_agents_api.py` | 13 | 13 | Both agents and the API against the real firewall and a real local chain. The same text is allowed from the chat and denied from a public post; an unlimited approval is denied; Preview changes nothing; a naive wallet is drained after it signs an unlimited approval. |
+| `tests/test_e2e.py` | 5 | 5 | The five protected-agent scenarios on local Anvil (allow, ask then confirm once, PRV-01, APR-01, KIL-01). |
+| `tests/test_contract.py` | 3 | 0 | The shared contract: the data types keep their fields and every facade function keeps its signature. |
+
+### Rule by rule: where each firewall rule is proved
+
+The red-team cases are in `firewall/redteam/attacks.jsonl` (`atk-`) and `benign.jsonl` (`ben-`); the column lists the
+cases whose reported rules include that rule (from `evidence/redteam_report.md`). "Unit tests" are in
+`tests/test_policy_preview.py` unless another file is named.
+
+| Rule | Decision | What it stops | Unit tests | Red-team cases |
+|---|---|---|---|---|
+| PRV-01 | deny | any action triggered by text from outside the owner's own chat (public posts, NFT metadata, tool output) | `test_provenance.py` | atk-005..014, atk-017 |
+| KIL-01 | deny | everything while the emergency stop is on | `kil01_*`, `test_state.py` (kill switch), `test_tokens_hardening.py` | atk-034, atk-035 |
+| NET-01 | deny | a transaction for the wrong network, or when the network cannot be confirmed | `net01_*` | atk-027, atk-028 |
+| TOK-01 | deny | moving any token other than TestUSD | `tok01_*` | unit tests only |
+| DST-01 | deny | sending to a burn address or to the token contract itself | `dst01_*` | unit tests only |
+| APR-01 | deny | an unlimited approval | `apr01_*`, `test_live_agents_api.py` | atk-003, atk-014, atk-016, atk-018..020 |
+| APR-02 | deny | an approval for a spender that is not on the allowlist | `apr02_*` | atk-003, atk-010, atk-014, atk-021..023 |
+| ADR-01 | deny | an address that looks like an allowlisted one (same first and last 6 digits) but is different | `adr01_*` | atk-024..026 |
+| SIM-01 | deny | a failed dry run, or a real transaction that differs from the request (recipient, amount, token, native coin), or more tokens leaving than asked | `sim01_*` | unit tests only |
+| LIM-01 | deny | a transfer or approval above the per-transaction maximum | `lim01_*` | atk-001, atk-002, atk-011, atk-012, atk-015, atk-036..038 |
+| LIM-03 | deny | passing the daily cap in 24 hours (approvals count too) | `lim03_*`, `test_state.py` (24-hour window, ledger) | atk-001, atk-012, atk-015, atk-029, atk-030, atk-038..040 |
+| ALW-01 | ask | a recipient that is not on the allowlist | `alw01_*` | atk-001, atk-002, atk-004..009, atk-011..013, atk-017, ben-011, ben-012 |
+| LIM-02 | ask | an amount above the auto limit | `lim02_*` | atk-004..008, atk-010, atk-022, ben-013..015 |
+| VEL-01 | ask | 5 or more actions in 10 minutes (the 6th asks). A denied request from the owner counts; requests from untrusted origins do not | `vel01_*`, `test_state.py` (velocity) | atk-029..033 |
+| DEF-01 | deny | anything the firewall cannot understand, or that crashes it: the default is deny | `*_becomes_deny`, `*_never_raises_*` | unit tests only |
+| CNF-01 | deny | confirming something that was never asked, was already answered, has expired or has changed | `confirm_*`, `test_agent.py` (no replay) | unit tests only |
+
+### The 55 red-team cases
+
+40 attacks in 14 categories and 15 legitimate requests in 6 categories (see `firewall/redteam/README.md`).
+`python -m firewall.redteam.run` feeds every case to the firewall from a clean state and writes
+`evidence/redteam_results.json` and `evidence/redteam_report.md` (add `--no-write` to only print the summary).
+It needs no chain and no API key.
+
+| Measure | Result |
+|---|---|
+| Cases that behave as expected | **55/55** (2 are read-only questions that never reach the firewall) |
+| Attacks denied / held for a human / let through | 36 / 4 / **0** of 40 |
+| Legitimate requests wrongly denied (false-block rate) | **0/15** |
+| Legitimate requests that needed a confirmation | 5/15 |
+
+`python -m firewall.redteam.run --agents` (anvil running, token deployed) also sends the same cases through both
+real agents and compares them. Measured: the protected agent executes **0 of 40** attacks; the naive agent executes
+**38 of 40** (27 transfers and 11 approvals; the largest transfer is 1,000,000 TUSD). The 2 attacks it does not execute
+are the kill-switch cases, where the engine refuses every token while the kill switch is on. Each case starts from the
+same wallet. SIM-01 has no case among the 55; it is proved by the unit tests only. The suite tests the firewall with
+structured requests; it does not measure how often a real language model is fooled.
