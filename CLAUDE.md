@@ -18,7 +18,7 @@ against a naive agent (funds lost on a LOCAL chain) and against ours (blocked, w
   source code (README, GitHub link, deploy steps, test cases), security self-assessment (permission tiers + known-risk list),
   execution evidence (for the on-chain topic: real on-chain transaction hashes).
 - Scoring: task completion 40%, security and compliance 30%, innovation and interaction 30%, plus 0-5 bonus for on-chain.
-- OPEN QUESTION: are Sepolia (testnet) hashes accepted as "real on-chain transaction hashes"? Ask the organizer before relying on it.
+- RESOLVED: the organizer confirmed that Sepolia (testnet) transaction hashes are accepted as on-chain execution evidence.
 - Team of 3. English only for all deliverables.
 
 ## Safety rules (never break)
@@ -36,27 +36,30 @@ against a naive agent (funds lost on a LOCAL chain) and against ours (blocked, w
 | 3 | Agent, UI and demo (LLM intents, FastAPI + React UI, README, deck, video) | `agent/`, `api/`, `ui/`, `README.md` | `person3-agent` |
 
 Only edit your own folder. Changes to `shared/types.py` go through Person 2 and are announced to everyone.
-The user running this session is **Person 1**. Person 2's startup pieces (types, stubs, config) were scaffolded
-by Claude; the real firewall logic is still to be built.
+The user running this session is **Person 1**. All three roles' code is now built and merged (see Status below).
 
 ## The contract (do not rename fields or change signatures)
 - Data types: `shared/types.py` (ActionRequest, TxPlan, SimResult, Decision, AgentReply).
 - Facade:
   - `wallet_engine`: `plan(req)->TxPlan`, `simulate(plan)->SimResult`, `execute(plan, decision)->tx_hash`, `balances()`, `approvals()`
-  - `firewall`: `evaluate(req, plan, sim)->Decision`, `confirm(req, plan)->Decision`, `audit.log(event)`, `audit.verify(path)`, `state.set_kill_switch(bool)`, `tokens.verify_token(...)`
+  - `firewall`: `evaluate(req, plan, sim)->Decision`, `confirm(req, plan)->Decision`, `preview(req, plan, sim)->Decision` (same answer as evaluate, NO side effects; used by the Preview screen), `audit.log(event)`, `audit.verify(path)`, `state.set_kill_switch(bool)`, `tokens.verify_token(...)`
   - `agent`: `handle_message(text, origin="user_chat")->AgentReply`; `agent.naive_agent.handle_message(...)` has NO firewall (local only)
 - `tests/test_contract.py` fails if a field or signature changes. Keep it passing.
 - Flow: agent -> ActionRequest(origin by code) -> engine.plan -> engine.simulate -> firewall.evaluate -> [ask: UI confirm -> firewall.confirm] -> engine.execute (needs valid approval token) -> audit.
 
-## Firewall rules (Person 2 implements; deny > ask > allow; default deny)
-PRV-01 untrusted origin: deny · KIL-01 kill switch: deny · NET-01 wrong chain id: deny · APR-01 unlimited approval: deny ·
-APR-02 approval to non-allowlisted spender: deny · ADR-01 look-alike of an allowlisted address: deny ·
-SIM-01 simulation failed or outflow > requested: deny · LIM-01 over max per-tx: deny · LIM-03 over daily cap: deny ·
-ALW-01 new recipient: ask · LIM-02 over auto limit: ask · VEL-01 more than 5 actions in 10 min: ask.
-Limits live in `firewall/rules.yaml` (auto 50, max 500, daily 1000 TUSD).
+## Firewall rules (Person 2; deny > ask > allow; default deny)
+DENY: PRV-01 untrusted origin · KIL-01 kill switch on · NET-01 wrong chain id · TOK-01 not our token contract ·
+APR-01 unlimited approval · APR-02 approval to a non-allowlisted spender · ADR-01 look-alike of an allowlisted address ·
+DST-01 burn address or the token contract itself · SIM-01 the dry run failed, OR the calldata does not match the request
+(action, token, recipient, amount, unlimited flag, native value), OR more tokens leave than requested ·
+LIM-01 over max per transaction · LIM-03 over the rolling daily cap (approvals count too) ·
+CNF-01 confirm() without an open question for this exact transaction · DEF-01 anything unexpected.
+ASK: ALW-01 new recipient · LIM-02 over the auto limit · VEL-01 five or more actions already in the last 10 minutes.
+Limits live in `firewall/rules.yaml` (auto 50, max 500, daily 1000 TUSD; `chain_id: null` means NET-01 uses the node's chain).
+Full table with enforcement points: `docs/security_self_assessment.md` section 3.2.
 
 ## Tech stack
-Python 3.11+, web3.py v7, Foundry (anvil, forge), Sepolia testnet, OpenZeppelin ERC-20 "TestUSD",
+Python 3.11+ (developed and tested on 3.14), web3.py v7, Foundry (anvil, forge), Sepolia testnet, OpenZeppelin ERC-20 "TestUSD",
 an OpenAI-compatible LLM API (openai SDK; LLM_BASE_URL / LLM_MODEL / LLM_API_KEY in .env, provider switchable),
 PyYAML, HMAC-SHA256 (stdlib), JSONL hash-chained log, FastAPI backend (`api/main.py`, port 8000),
 React + Vite frontend (`ui/`, port 5173, proxies /api to 8000), pytest.
@@ -69,23 +72,23 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
   (e.g. `~/.venvs/sentinel`). `core.fileMode` is set to false.
 - GitHub: https://github.com/Bijoy2406/Sundarban (public). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
 
-## Status (update this section as work lands)
-- [x] Skeleton, shared types, stubs, rules.yaml, contract test (3 passing)
-- [x] firewall/tokens.py real HMAC tokens (PR #31, Person 2). Still stubs: policy.evaluate/confirm (they return the old STUB string, which
-      verify_token now rejects, so execute() refuses until #15 is done), provenance (#14), state (#13)
-- [x] Person 1 (done): Foundry 1.8.5 installed, TestUSD contract written and deployed on local Anvil, 6 on-chain tests pass
-- [x] Person 1 (done): chain.py + erc20.py (plan, decode, balances, approvals), tested
-- [x] Starter FastAPI + React app (status, wallet, preview, LLM test) and OpenAI-compatible LLM client
-- [x] Sepolia: Alchemy RPC set, throwaway wallet funded, TestUSD deployed on Sepolia (evidence/deployments.json)
-      Key selection: ACTIVE_NETWORK=local uses WALLET_PRIVATE_KEY; sepolia uses SEPOLIA_PRIVATE_KEY (chain.key_var()).
-- [x] Person 1: simulate.py + execute.py done and verified (local Anvil and one real Sepolia tx); binding.py defines what the approval token must bind to
-- [x] Person 1: drainer done (wallet_engine/attacks/drainer.py, local chain 31337 only, 17 tests)
-- [x] Audit log (#17) built by Person 1 on Person 2's behalf: firewall/audit.py, scripts/verify_audit.py, 29 tests
-- [x] #11 script written and rehearsed: wallet_engine/scripts/evidence_run.py (+ tests/test_evidence_run.py)
-- [ ] Person 1 (todo): RUN it on Sepolia once the real policy engine (#15) issues real tokens: `ACTIVE_NETWORK=sepolia python wallet_engine/scripts/evidence_run.py --yes`;
-      the recipients must be in firewall/rules.yaml allowlist (or use --temp-allowlist for a rehearsal only)
-- [ ] Person 2: real policy, provenance, HMAC tokens, audit chain, 40 attack + 15 benign cases, security report
-- [ ] Person 3: intent parser, feed, agent, naive agent, full UI (decision card, confirm, kill switch, audit, attack replay), deck, video, final package
+## Status (updated 18 Oct 2026)
+Code and evidence are complete; what remains is the presentation material and sending it.
+- [x] Shared types and contract test; wallet engine (plan, simulate, execute, binding, pending state); TestUSD on local Anvil and Sepolia
+- [x] Firewall: policy engine with 16 rules, strict rules loader, persistent HMAC-chained spend ledger, kill switch, provenance,
+      single-use HMAC approval tokens, hash-chained audit log with cross-process locking (Linux, Windows, portable), `preview()`
+- [x] Agent (strict intent parser, protected agent, naive agent, synthetic feed, attack replay), FastAPI backend, React UI
+- [x] Red-team: 40 attacks + 15 benign cases, runner and report (`python -m firewall.redteam.run`): 55/55, 0/40 attacks let through,
+      0/15 wrongly denied; both agents on Anvil: protected executes 0/40, naive executes 38/40
+- [x] Sepolia evidence run through the real pipeline: 6 transactions sent, 2 denied (`evidence/tx_hashes.csv`); audit head anchored on Sepolia
+- [x] Tests: 1170 passed / 1 skipped with Anvil, 1108 passed / 63 skipped without
+- [x] Documents: `README.md`, `docs/technical_overview.md`, `docs/security_self_assessment.md`, `docs/tech_chain_layer.md`
+- [ ] Deck (10 minutes at most), demo video (5 minutes at most, no keys on screen), final email: drafts in `docs/presentation_outline.md`,
+      `docs/demo_video_script.md`, `docs/submission_package.md`. Issue #28 stays open until these exist.
+- [ ] Send the package to wangyr@pbcsf.tsinghua.edu.cn: deadline 20 Oct 2026 23:59 Beijing time, aim for noon; code freeze 19 Oct.
+Decisions still open for the team (all documented in the self-assessment risk list): set `chain_id` in `firewall/rules.yaml` so NET-01 is
+active (R-01); fix R-09 (broadcast timeout reported as failure), R-10 (replay wording on a provider outage) and R-11 (`--verify` crash on a
+malformed record) before the freeze or leave them documented; run the suite once on a real Windows machine (R-16).
 
 ## Working style
 - Small steps, run everything, commit after each working step.
