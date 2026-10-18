@@ -32,3 +32,6 @@ logs/
 # raw test-output dumps must never be committed (pytest tries to collect test_*.txt files and aborts)
 test_report*.txt
 test_results*.txt
+
+# graphify knowledge-graph output (local only)
+graphify-out/
