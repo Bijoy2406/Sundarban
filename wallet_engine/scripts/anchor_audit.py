@@ -162,6 +162,24 @@ def anchor(log: Path, record: Path, network: str, yes: bool = False, dry_run: bo
 
 # ------------------------------------------------------------------ verifying (read-only)
 
+_RECORD_FIELDS = {"tx_hash": str, "head": str, "wallet": str, "chain_id": int, "seq": int}
+
+
+def _record_problems(rec) -> list:
+    """What is wrong with the SHAPE of one stored anchor record (the file is only as trustworthy as whoever edited it)."""
+    if not isinstance(rec, dict):
+        return [f"this entry is not a record (it is a {type(rec).__name__})"]
+    problems = []
+    for key, kind in _RECORD_FIELDS.items():
+        if key not in rec:
+            problems.append(f"the record has no '{key}'")
+        elif not isinstance(rec[key], kind) or isinstance(rec[key], bool):
+            problems.append(f"'{key}' is not a {kind.__name__}")
+    if isinstance(rec.get("seq"), int) and not isinstance(rec.get("seq"), bool) and rec["seq"] < 0:
+        problems.append("'seq' is negative")
+    return problems
+
+
 def verify(record: Path, log: Path) -> list:
     """Check every recorded anchor against the chain AND the log. Returns one dict per anchor with 'ok' and 'problems'."""
     records = _load_records(record)
@@ -172,6 +190,13 @@ def verify(record: Path, log: Path) -> list:
     w3 = chain.get_web3()
     results = []
     for rec in records:
+        shape = _record_problems(rec)
+        if shape:                    # a damaged record is a failed check with a reason, never a traceback
+            results.append({"tx_hash": rec.get("tx_hash") if isinstance(rec, dict) and isinstance(rec.get("tx_hash"), str) else "(unreadable)",
+                            "head": rec.get("head") if isinstance(rec, dict) and isinstance(rec.get("head"), str) else "(unreadable)",
+                            "seq": rec.get("seq") if isinstance(rec, dict) and isinstance(rec.get("seq"), int) else "?",
+                            "ok": False, "problems": ["malformed record: " + problem for problem in shape], "log_grown_since": False})
+            continue
         problems = []
         try:
             tx = w3.eth.get_transaction(rec["tx_hash"])

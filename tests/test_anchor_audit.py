@@ -48,6 +48,64 @@ def test_a_malformed_head_is_refused(bad):
         anchor_audit.build_data(bad)
 
 
+# ------------------------------------------------------------------ a damaged record file must give a verdict, not a traceback
+
+GOOD_LOG = ROOT / "evidence" / "audit_sepolia.jsonl"
+WALLET = "0xB89C8A9826cac01E3b4A01873Bd0C27553567609"
+FULL = {"tx_hash": "0x" + "ab" * 32, "head": HEAD, "wallet": WALLET, "chain_id": 11155111, "seq": 15}
+
+
+@pytest.fixture
+def offline_chain(monkeypatch):
+    """verify() reads the chain; here the node is unreachable, so a well-shaped record fails for THAT reason."""
+    from types import SimpleNamespace
+
+    def unreachable(*args, **kwargs):
+        raise ConnectionError("no node in this test")
+    eth = SimpleNamespace(get_transaction=unreachable, get_transaction_receipt=unreachable, chain_id=11155111)
+    monkeypatch.setattr(anchor_audit.chain, "get_web3", lambda: SimpleNamespace(eth=eth))
+
+
+def _verify(tmp_path, records, capsys):
+    record = tmp_path / "anchors.json"
+    record.write_text(json.dumps(records), encoding="utf-8")
+    code = anchor_audit.main(["--verify", "--log", str(GOOD_LOG), "--record", str(record)])
+    return code, capsys.readouterr().out
+
+
+@pytest.mark.parametrize("records", [
+    ["just a string"],
+    [42],
+    [None],
+    [["a", "list"]],
+    [{k: v for k, v in FULL.items() if k != "seq"}],                 # no 'seq'
+    [{k: v for k, v in FULL.items() if k != "head"}],                # no 'head'
+    [{k: v for k, v in FULL.items() if k != "tx_hash"}],             # no 'tx_hash'
+    [{**FULL, "seq": "15"}],                                          # wrong type
+    [{**FULL, "chain_id": True}],                                     # a bool is not a chain id
+    [{**FULL, "head": 5}],
+    [{}],
+])
+def test_a_malformed_record_is_reported_as_failed_not_raised(tmp_path, capsys, offline_chain, records):
+    code, out = _verify(tmp_path, records, capsys)
+    assert code == 1
+    assert "RESULT: FAILED" in out and "Traceback" not in out
+
+
+def test_one_bad_record_among_good_shapes_still_fails_the_whole_check(tmp_path, capsys, offline_chain):
+    code, out = _verify(tmp_path, [FULL, "oops"], capsys)
+    assert code == 1 and out.count("FAILED") >= 2                     # the bad record AND the overall result
+    assert "not a record" in out or "malformed" in out
+
+
+def test_verify_returns_problems_for_a_bad_record_without_raising(tmp_path, offline_chain):
+    record = tmp_path / "anchors.json"
+    record.write_text(json.dumps(["x", {"tx_hash": "0x1"}]), encoding="utf-8")
+    results = anchor_audit.verify(record, GOOD_LOG)
+    assert [r["ok"] for r in results] == [False, False]
+    assert all(r["problems"] for r in results)
+
+
 # ------------------------------------------------------------------ what may be anchored
 
 def test_the_shipped_sepolia_evidence_log_is_anchorable():
