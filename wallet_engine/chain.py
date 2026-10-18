@@ -112,6 +112,16 @@ def _candidate_spenders() -> list:
     return sorted(unique)
 
 
+def _is_block_range_error(exc: Exception) -> bool:
+    """True only for a node refusing an eth_getLogs search because the block range (or the result) is too big.
+
+    Free RPC plans word it differently ("up to a 10 block range", "query returned more than 10000 results",
+    "exceed maximum block range"); a timeout, a rate limit or any other failure is NOT this error.
+    """
+    text = str(exc).lower()
+    return "range" in text or "10000 results" in text or "10,000 results" in text or "response size exceeded" in text
+
+
 def approvals(w3: Web3 | None = None) -> list:
     """Every spender this wallet has approved that still has a non-zero allowance.
 
@@ -119,8 +129,8 @@ def approvals(w3: Web3 | None = None) -> list:
     current allowance (events alone can be stale).
 
     Free public RPC plans (for example Alchemy's free tier on Sepolia) refuse a log search over more than
-    a few blocks. On a public network, when the scan is refused, the allowance is read for the known
-    spenders instead (see _candidate_spenders). On the local chain the scan never fails, and an error is raised.
+    a few blocks. On a public network, when the scan is refused for its block range, the allowance is read for
+    the known spenders instead (see _candidate_spenders). Any other error, and any error on the local chain, is raised.
     """
     w3 = w3 or get_web3()
     owner = wallet_address()
@@ -129,9 +139,9 @@ def approvals(w3: Web3 | None = None) -> list:
     try:
         events = token.events.Approval().get_logs(from_block=_deploy_block(), argument_filters={"owner": owner})
         spenders = sorted({e["args"]["spender"] for e in events})
-    except Exception:
-        if network() == "local":
-            raise
+    except Exception as exc:
+        if network() == "local" or not _is_block_range_error(exc):
+            raise                      # an outage or a rate limit must not look like "no approvals"
         spenders = _candidate_spenders()
     result = []
     for spender in spenders:

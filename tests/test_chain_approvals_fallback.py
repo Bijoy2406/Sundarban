@@ -80,3 +80,29 @@ def test_candidates_survive_a_missing_rules_file(monkeypatch, tmp_path):
     monkeypatch.setenv("RULES_PATH", str(tmp_path / "nope.yaml"))
     monkeypatch.delenv("ATTACKER_PRIVATE_KEY", raising=False)
     assert chain._candidate_spenders() == []
+
+
+@pytest.mark.parametrize("error", [
+    RuntimeError("429 Too Many Requests: rate limit exceeded"),
+    ConnectionError("HTTPSConnectionPool: Max retries exceeded"),
+    TimeoutError("read timed out"),
+    ValueError("something else went wrong"),
+])
+def test_a_generic_rpc_error_on_a_public_network_is_not_hidden(setup, error):
+    """Only the 'block range too large' refusal may be answered with the known-spenders list: any other error would
+    silently turn into a partial list ('No active approvals') while the real problem is an outage."""
+    setup(FakeToken({BOB: 10**18}, scan_error=error), "sepolia")
+    with pytest.raises(type(error)):
+        chain.approvals()
+
+
+@pytest.mark.parametrize("message", [
+    "Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range",
+    "query returned more than 10000 results. Try with this block range [0x1, 0x2].",
+    "exceed maximum block range: 5000",
+    "block range too large",
+    "Log response size exceeded. You can make eth_getLogs requests with up to a 2K block range",
+])
+def test_the_block_range_refusals_still_fall_back(setup, message):
+    setup(FakeToken({BOB: 10**18}, scan_error=ValueError(message)), "sepolia")
+    assert chain.approvals() == [{"token": TOKEN, "spender": BOB, "allowance": "1"}]
