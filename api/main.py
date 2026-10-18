@@ -50,7 +50,8 @@ _PENDING_CONFIRMATIONS: dict[str, _PendingConfirmation] = {}
 
 def _jsonable(obj):
     if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
+        # The approval token is a server-side secret (wallet_engine.execute consumes it): never send it to the browser.
+        return {k: (None if k == "approval_token" else _jsonable(v)) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_jsonable(v) for v in obj]
     if isinstance(obj, int) and not isinstance(obj, bool) and abs(obj) > 2**53:
