@@ -42,7 +42,7 @@ Deployment records are kept in `evidence/deployments.json`.
 | Network | Key variable in `.env` | What it is |
 |---|---|---|
 | local | `WALLET_PRIVATE_KEY` | Anvil's public account #0 (the victim wallet). Identical on every machine; worthless outside the laptop. |
-| local | `ATTACKER_PRIVATE_KEY` | Anvil's public account #1, used only by the drainer in the attack replay |
+| local | `ATTACKER_PRIVATE_KEY` | Anvil's public account #3, used only by the drainer in the attack replay (not #1 or #2: they are the allowlisted Alice and Bob) |
 | Sepolia | `SEPOLIA_PRIVATE_KEY` | A freshly generated throwaway key, funded by a faucet; holds no real value |
 
 Rules enforced by the code and the repository:
@@ -96,6 +96,11 @@ It never raises: a problem is returned as `ok=False` with a readable reason, so 
 (rule SIM-01). The reported `outflow` and `allowance_after` are computed from the **calldata that would be
 signed**, not from the request or the plan's description. A plan that lies about itself is therefore
 still measured honestly.
+
+What the dry run does **not** do: it does not observe balance changes. The `outflow` is decoded from the same
+calldata the firewall already reads, so rule SIM-01's "more tokens leave than requested" check guards against a
+mismatch between the plan and the request, not against a token contract that moves more than its calldata says.
+That second case is excluded another way: only our own token contract may be used (TOK-01).
 
 ### 5.3 `execute(plan, decision) → tx hash`
 The only function that sends a transaction. It raises `ExecutionRefused` (nothing is sent) unless **all** of

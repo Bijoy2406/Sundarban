@@ -86,7 +86,7 @@ wallet/
 
 | Tool | Version | Check | Install |
 |---|---|---|---|
-| Python | 3.11+ | `python3 --version` | python.org or your package manager |
+| Python | 3.11+ (developed and tested on 3.14) | `python3 --version` | python.org or your package manager |
 | Node.js | 20.19+ or 22.12+ | `node -v` | nodejs.org |
 | Foundry (anvil, forge, cast) | latest | `anvil --version` | see below |
 | git | any | `git --version` | |
@@ -132,7 +132,7 @@ cp .env.example .env
 | `ACTIVE_NETWORK` | `local` (switch to `sepolia` only for evidence runs) | everything |
 | `WALLET_PRIVATE_KEY` | Anvil **Account #0** private key (printed when you run `anvil`) | local wallet |
 | `SEPOLIA_PRIVATE_KEY` | a fresh throwaway key from `cast wallet new`; used only when `ACTIVE_NETWORK=sepolia` | Sepolia evidence run |
-| `ATTACKER_PRIVATE_KEY` | Anvil **Account #1** private key | attack demo |
+| `ATTACKER_PRIVATE_KEY` | Anvil **Account #3** private key (not #1 or #2: those are Alice and Bob on the allowlist, and the attacker must not be a trusted contact) | attack demo |
 | `APPROVAL_SECRET` | output of `python3 -c "import secrets; print(secrets.token_hex(32))"` | firewall tokens |
 | `TOKEN_ADDRESS` | printed by the deploy script (step 3); locally it is `0x5FbDB2315678afecb367f032d93F642f64180aa3` | wallet |
 | `RPC_URL_SEPOLIA` | a free Sepolia RPC URL (Alchemy / Infura / public) | evidence run only |
@@ -260,6 +260,24 @@ result = drain("25")     # or drain() for "as much as the allowance and balance 
 ```
 or from a shell: `python -m wallet_engine.attacks.drainer 25`
 
+### How the replay page works (`agent/replay.py`)
+
+One attack, **one extracted action, two agents**. The page does not leave the outcome to whatever the language
+model happens to do that day:
+
+1. *Layer 1, informational:* the protected agent's own way of reading outside text (an untrusted wrapper
+   around it) is tried, and the page reports whether the model refused or still extracted an action.
+2. The "fooled model" is the worst case: the same text read **without** the wrapper. If the real model extracts
+   an action that pays the attacker, that is used (`source: llm`). Otherwise (refusal, bad reply, no API key,
+   another recipient) the action a fooled model would produce comes from a fixed script (`source: scripted`).
+   The page labels which one it was.
+3. Both agents receive that same action with the same code-assigned origin. The naive agent signs it with no
+   firewall and loses the test funds; the protected agent asks the firewall, which answers from the origin
+   assigned by code (PRV-01) and the transaction itself (APR-01, ...), never from the text.
+
+The payload shown is the feed text with only its placeholder addresses pointed at the local attacker account;
+nothing is added to the attack.
+
 ## 10. Evidence run (Sepolia transactions)
 
 `wallet_engine/scripts/evidence_run.py` pushes 8 scenarios through the full pipeline (6 legitimate actions,
@@ -282,7 +300,14 @@ at least one action was denied, and records scripted confirmations as "scripted"
 
 These are source documents, not proof that a deck was exported, a video recorded, or an email sent. Final submission evidence must be added by the team before delivery.
 
-## 12. Handy `cast` commands (local chain)
+## 12. License and third-party components
+
+Sundarban is released under the [MIT License](LICENSE). It builds on open-source components under their own
+licenses: web3.py, FastAPI, PyYAML, python-dotenv and React and Vite (MIT), uvicorn, httpx (BSD), the `openai`
+Python client (Apache-2.0) and Foundry (MIT / Apache-2.0). The language model is any OpenAI-compatible provider
+you configure; no model weights or provider code are included.
+
+## 13. Handy `cast` commands (local chain)
 
 ```bash
 cast chain-id --rpc-url http://127.0.0.1:8545
@@ -290,7 +315,7 @@ cast call 0x5FbDB2315678afecb367f032d93F642f64180aa3 "balanceOf(address)(uint256
 ```
 
 
-## 13. Test-case index
+## 14. Test-case index
 
 Run from the repository root with the Python environment activated:
 
