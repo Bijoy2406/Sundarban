@@ -11,6 +11,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from web3 import Web3
 
+from shared.redact import redact
+
 from .erc20 import from_base_units, token_contract
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +60,7 @@ def status() -> dict:
             info["chain_id"] = w3.eth.chain_id
             info["token_deployed"] = bool(w3.eth.get_code(token_address()))
     except Exception as exc:   # report, don't crash the UI
-        info["error"] = str(exc)
+        info["error"] = redact(exc)      # provider errors contain the RPC URL, which contains the API key
     return info
 
 

@@ -121,7 +121,7 @@ function PlanCard({ onExecuted }) {
     try {
       const outcome = await executePlan(form);
       setExecution(outcome);
-      if (outcome.status === "executed") onExecuted();
+      if (outcome.status === "executed" || outcome.status === "pending") onExecuted();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -135,7 +135,7 @@ function PlanCard({ onExecuted }) {
     try {
       const outcome = await confirmPlan(requestId);
       setExecution(outcome);
-      if (outcome.status === "executed") onExecuted();
+      if (outcome.status === "executed" || outcome.status === "pending") onExecuted();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -200,11 +200,9 @@ function PlanCard({ onExecuted }) {
 
 function PlanResult({ result }) {
   const { plan, simulation, decision } = result;
-  const isStub = decision.rule_ids?.includes("STUB");
   return <div className="result">
     <div className={`decision ${decision.decision}`}>
       <strong>Firewall: {decision.decision.toUpperCase()}</strong>
-      {isStub && <span className="tag">STUB: real rules not built yet</span>}
       <ul>{(decision.reasons || []).map((r, i) => <li key={`${i}-${r}`}>{r}</li>)}</ul>
     </div>
     <table><tbody>
@@ -222,13 +220,16 @@ function PlanResult({ result }) {
 function ExecutionResult({ result }) {
   return <div className="result">
     <div className={`decision ${result.decision?.decision || result.status}`}>
-      <strong>{result.status === "executed" ? "Transaction sent" : result.status === "awaiting_confirmation" ? "Confirmation required" : "Transaction denied"}</strong>
+      <strong>{result.status === "executed" ? "Transaction sent"
+        : result.status === "pending" ? "Sent, waiting for confirmation"
+        : result.status === "awaiting_confirmation" ? "Confirmation required" : "Transaction denied"}</strong>
       <ul>{(result.reasons || result.decision?.reasons || []).map((r, i) => <li key={`${i}-${r}`}>{r}</li>)}</ul>
     </div>
     {result.tx_hash && <p>Transaction hash: {result.explorer_url
       ? <a href={result.explorer_url} target="_blank" rel="noreferrer">{result.tx_hash}</a>
       : <code className="break">{result.tx_hash}</code>}</p>}
     {result.status === "awaiting_confirmation" && <p className="muted">Nothing has been sent yet. Review the request and confirm explicitly.</p>}
+    {result.status === "pending" && <p className="muted">{result.message || "The transaction was broadcast but is not confirmed yet. Check the hash before trying again; do not send it twice."}</p>}
   </div>;
 }
 
@@ -249,7 +250,7 @@ function ChatCard({ onExecuted }) {
     try {
       const reply = await sendChat(text);
       setItems((current) => [...current, { role: "agent", text: reply.text || "Request processed.", reply }]);
-      if (reply.status === "executed" || reply.tx_hash) onExecuted();
+      if (reply.status === "executed" || reply.status === "pending" || reply.tx_hash) onExecuted();
     } catch {
       setError("I couldn't send that message to the wallet agent. Check that the backend is running and try again.");
     } finally {
@@ -410,9 +411,9 @@ function AttackReplayCard({ onExecuted }) {
         <span className="tag">LOCAL ANVIL ONLY</span>
       </div>
       <p className="muted small">
-        Run the selected synthetic feed attack against both agents. The naive agent intentionally bypasses
-        firewall policy; the protected agent evaluates the same payload with its source marked untrusted.
-        Test tokens only. This endpoint refuses non-local chains.
+        One attack, one extracted action, two agents. Both agents receive the <em>same</em> action, so the only
+        difference is the firewall: the naive agent signs it, the protected agent asks the firewall, which uses the
+        origin assigned by code (not the text). Test tokens only; this endpoint refuses non-local chains.
       </p>
       <div className="form">
         <label className="wide">Choose an attack from the feed
@@ -434,14 +435,31 @@ function AttackReplayCard({ onExecuted }) {
       {result && (
         <>
           <p className="muted small">Attack: {result.attack.title} · origin assigned by backend: <code>{result.attack.origin}</code></p>
+          <div className="attack-payload">
+            <strong>Payload given to both agents</strong>
+            <p>{result.attack.payload}</p>
+            <p className="small">
+              <strong>Action extracted from it</strong> ({result.intent.source === "llm" ? "by the real model, with no protection around the text" : "scripted: what a fooled model would extract"}):{" "}
+              <code>{result.intent.action}{result.intent.unlimited ? " UNLIMITED" : ` ${result.intent.amount}`} {result.intent.token} → {result.intent.to}</code>
+            </p>
+            <p className="muted small">{result.intent.note}</p>
+            <p className="small">
+              <strong>Layer 1, model hardening:</strong>{" "}
+              <span className={result.layer1.status === "fooled" ? "danger-text" : "ok-text"}>
+                {result.layer1.status === "fooled" ? "not enough on its own" : "the model refused"}
+              </span>{" "}
+              · {result.layer1.detail} <strong>Layer 2, the firewall</strong> does not depend on the model.
+            </p>
+          </div>
           <div className="replay-columns">
             <section className="replay-panel naive-panel">
               <h3>Naive agent</h3>
-              <div className={`decision ${result.naive.status === "drained" ? "deny" : "ask"}`}>
-                <strong>{result.naive.status === "drained" ? "Attack succeeded — test funds lost" : "Naive execution did not complete"}</strong>
+              <div className={`decision ${["drained", "stolen"].includes(result.naive.status) ? "deny" : "ask"}`}>
+                <strong>{["drained", "stolen"].includes(result.naive.status) ? "Attack succeeded — test funds lost"
+                  : result.naive.status === "approved" ? "Attacker was approved; nothing was taken" : "Naive execution did not complete"}</strong>
                 <p>{result.naive.reason}</p>
               </div>
-              {result.naive.tx_hash && <p>Approval transaction: <code className="break">{result.naive.tx_hash}</code></p>}
+              {result.naive.tx_hash && <p>{result.intent.action === "approve" ? "Approval" : "Transfer"} transaction: <code className="break">{result.naive.tx_hash}</code></p>}
               {result.naive.drain_tx_hash && <p>Drain transaction: <code className="break">{result.naive.drain_tx_hash}</code></p>}
               {result.naive.balance_before !== null && (
                 <table><tbody>
@@ -456,7 +474,7 @@ function AttackReplayCard({ onExecuted }) {
               <div className={`decision ${result.protected.status === "blocked" ? "deny" : "ask"}`}>
                 <strong>{result.protected.status !== "blocked" ? "Request needs investigation"
                   : result.protected.decision ? "Firewall blocked the attack"
-                  : "Refused before the firewall: no safe action found in untrusted text"}</strong>
+                  : "Refused before the firewall"}</strong>
                 <ul>{(result.protected.reasons || []).map((reason, index) => <li key={`${index}-${reason}`}>{reason}</li>)}</ul>
               </div>
               {result.protected.decision?.rule_ids?.length > 0 && <p className="muted small">Rules: {result.protected.decision.rule_ids.join(", ")}</p>}

@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 
 from shared.types import ActionRequest, AgentReply, Decision
-from agent.intents import IntentParseError, parse_intent
+from agent.intents import IntentParseError, check_intent, parse_intent
 from agent.resolve import UserInputError, require_address, resolve_token
 from wallet_engine import ExecutionRefused, chain, execute, plan, simulate
 from wallet_engine.binding import token_binding
@@ -25,6 +25,16 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
     A hard chain-id gate runs before any LLM call or planning. origin is supplied
     by the calling code and never comes from the model.
     """
+    return _handle(lambda: parse_intent(text), origin)
+
+
+def handle_intent(intent: dict, origin: str = "user_chat") -> AgentReply:
+    """The same naive pipeline for an intent that was already extracted (the attack replay hands both agents
+    the SAME extracted action). The local-chain guard still runs first."""
+    return _handle(lambda: check_intent(intent), origin)
+
+
+def _handle(get_intent, origin: str) -> AgentReply:
     try:
         w3 = chain.get_web3()
         if not w3.is_connected():
@@ -36,7 +46,7 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
                 blocked=True,
             )
 
-        intent = parse_intent(text)
+        intent = get_intent()
         request_id = str(uuid.uuid4())
         req = ActionRequest(
             request_id=request_id,

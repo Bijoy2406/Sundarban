@@ -108,7 +108,7 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
     """Run the scenarios in order. Returns one dict per scenario (also appended to the CSV)."""
     import wallet_engine
     from shared.types import ActionRequest
-    from wallet_engine import ExecutionFailed, ExecutionRefused
+    from wallet_engine import ExecutionFailed, ExecutionPending, ExecutionRefused
 
     results = []
     for s in scenarios:
@@ -151,6 +151,10 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
         except ExecutionFailed as exc:
             row["status"] = "failed"
             row["note"] += f" | {exc}"
+        except ExecutionPending as exc:                  # broadcast, outcome unknown: keep the hash, do not count it as sent
+            row["status"] = "pending"
+            row["tx_hash"] = exc.tx_hash
+            row["note"] += " | broadcast but no receipt yet (not counted as sent)"
         except Exception as exc:                         # report and keep going; never hide it
             row["status"] = "error"
             row["note"] += f" | {type(exc).__name__}: {exc}"

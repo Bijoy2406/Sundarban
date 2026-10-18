@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Any
 
@@ -20,6 +21,10 @@ REFUSAL_MESSAGE = (
 _ALLOWED_ACTIONS = {"transfer", "approve", "revoke"}
 _REQUIRED_KEYS = {"action", "token", "to", "amount", "unlimited", "rationale"}
 _AMOUNT_RE = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
+# Any spelling of our delimiter tag: any case, spaces inside the brackets, extra attributes.
+_DELIMITER_RE = re.compile(r"<(\s*/?\s*untrusted\b[^>]*)>", re.IGNORECASE)
+# A reply wrapped in a Markdown code fence, which many models add: ```json ... ```
+_FENCE_RE = re.compile(r"^```[A-Za-z0-9_-]*[ \t]*\r?\n(.*?)\r?\n?```$", re.DOTALL)
 
 _SYSTEM_PROMPT = """You extract wallet intent from a user's message.
 Return exactly one valid JSON object and no Markdown or extra text.
@@ -53,11 +58,25 @@ class IntentParseError(ValueError):
 
 
 def _safe_untrusted_text(text: str) -> str:
-    """Prevent untrusted input from closing or nesting its own delimiters."""
-    return (
-        text.replace("<untrusted>", "&lt;untrusted&gt;")
-        .replace("</untrusted>", "&lt;/untrusted&gt;")
-    )
+    """Prevent untrusted input from closing or nesting its own delimiters.
+
+    The text is first normalised (NFKC), so full-width look-alikes such as "＜/untrusted＞" become the plain tag
+    and are neutralised too; then every spelling of the tag (any case, inner spaces) is turned into harmless text.
+    """
+    text = unicodedata.normalize("NFKC", text)
+    return _DELIMITER_RE.sub(lambda m: f"&lt;{m.group(1)}&gt;", text)
+
+
+def _unwrap_fence(raw: str) -> str:
+    """If the model wrapped its JSON in a Markdown code fence, return what is inside; otherwise return raw.
+
+    Only a reply that is ENTIRELY one fenced block is accepted. Text before or after the fence is not
+    tolerated: the result still goes through the same strict validation as any other reply."""
+    if isinstance(raw, str):
+        match = _FENCE_RE.match(raw.strip())
+        if match:
+            return match.group(1)
+    return raw
 
 
 def _llm_call(messages: list[dict[str, str]]) -> str:
@@ -76,7 +95,7 @@ def _llm_call(messages: list[dict[str, str]]) -> str:
 def _validate_intent(raw: str) -> dict[str, Any]:
     """Decode JSON and validate its exact schema before it leaves this module."""
     try:
-        value = json.loads(raw)
+        value = json.loads(_unwrap_fence(raw))
     except (json.JSONDecodeError, TypeError) as exc:
         raise ValueError("response was not valid JSON") from exc
 
@@ -109,6 +128,15 @@ def _validate_intent(raw: str) -> dict[str, Any]:
     if value["unlimited"] and amount != 0:
         raise ValueError("unlimited approval must use amount 0")
     return value
+
+
+def check_intent(intent) -> dict[str, Any]:
+    """Validate an intent that did not come straight from the model (for example one the replay extracted
+    earlier). The same strict schema as a model reply: anything else raises IntentParseError."""
+    try:
+        return _validate_intent(json.dumps(intent))
+    except (ValueError, TypeError) as exc:
+        raise IntentParseError() from exc
 
 
 def parse_intent(
@@ -151,10 +179,12 @@ def parse_intent(
         except Exception as exc:
             last_error = exc
             if attempt == 0:
+                # A correction from the application. It deliberately does not repeat the bad reply (that text
+                # may contain what an attacker wrote), and it is a "user" turn like the request itself.
                 messages = [
                     *messages,
                     {
-                        "role": "assistant",
+                        "role": "user",
                         "content": "Your previous response was invalid. Return only a corrected JSON object matching the exact schema.",
                     },
                 ]

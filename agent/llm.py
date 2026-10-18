@@ -12,6 +12,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from shared.redact import redact
+
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
@@ -52,4 +54,4 @@ def test_connection() -> dict:
             "latency_ms": round((time.perf_counter() - start) * 1000),
         }
     except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": False, "error": f"{type(exc).__name__}: {redact(exc)}"}
