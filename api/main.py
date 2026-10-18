@@ -27,6 +27,7 @@ import wallet_engine
 from agent import llm
 from agent import handle_message as handle_agent_message, confirm_pending as confirm_agent_pending, has_pending_confirmation, is_pending
 from agent import replay
+from agent.resolve import UserInputError, require_address
 from agent.feed import get_feed_item, get_feed_items
 from shared.redact import redact
 from shared.types import ActionRequest
@@ -84,9 +85,13 @@ def _take_pending(request_id: str) -> ActionRequest | None:
 
 
 def _request(body: "PlanRequest", request_id: str | None = None) -> ActionRequest:
+    try:
+        to = require_address(body.to, body.action)     # the same full-address and EIP-55 checks the chat agent applies
+    except UserInputError as exc:
+        raise HTTPException(status_code=400, detail=redact(exc)) from None
     return ActionRequest(
         request_id=request_id or str(uuid.uuid4()), action=body.action,
-        token=chain.token_address(), to=body.to, amount=body.amount,
+        token=chain.token_address(), to=to, amount=body.amount,
         unlimited=body.unlimited,
         origin="user_chat",   # set by CODE from the channel (the UI form), never by an LLM
     )

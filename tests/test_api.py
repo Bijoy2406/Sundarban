@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 import api.main as api
 from shared.types import Decision, SimResult, TxPlan
 
+ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"      # a real address: the API now checks addresses like the agent does
 client = TestClient(api.app)
 
 
@@ -49,7 +50,7 @@ def _stub_pipeline(monkeypatch, decision_name="allow"):
 
 def test_execute_allow_sends_and_returns_hash(monkeypatch):
     calls = _stub_pipeline(monkeypatch, "allow")
-    r = client.post("/api/execute", json={"action": "transfer", "to": "0xAlice", "amount": "10"})
+    r = client.post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "10"})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "executed"
@@ -60,7 +61,7 @@ def test_execute_allow_sends_and_returns_hash(monkeypatch):
 
 def test_execute_deny_sends_nothing(monkeypatch):
     calls = _stub_pipeline(monkeypatch, "deny")
-    r = client.post("/api/execute", json={"action": "transfer", "to": "0xAlice", "amount": "10"})
+    r = client.post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "10"})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "denied"
@@ -72,7 +73,7 @@ def test_execute_deny_sends_nothing(monkeypatch):
 def test_execute_ignores_tampered_client_decision(monkeypatch):
     calls = _stub_pipeline(monkeypatch, "deny")
     r = client.post("/api/execute", json={
-        "action": "transfer", "to": "0xAlice", "amount": "10",
+        "action": "transfer", "to": ALICE, "amount": "10",
         "decision": {"decision": "allow", "approval_token": "forged"},
     })
     assert r.status_code == 200
@@ -82,7 +83,7 @@ def test_execute_ignores_tampered_client_decision(monkeypatch):
 
 def test_execute_ask_requires_separate_confirm(monkeypatch):
     calls = _stub_pipeline(monkeypatch, "ask")
-    r = client.post("/api/execute", json={"action": "transfer", "to": "0xAlice", "amount": "10"})
+    r = client.post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "10"})
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "awaiting_confirmation"
@@ -104,7 +105,7 @@ def test_confirm_rejects_unknown_or_replayed_request(monkeypatch):
 def test_sepolia_returns_explorer_link(monkeypatch):
     _stub_pipeline(monkeypatch, "allow")
     monkeypatch.setattr(api.chain, "network", lambda: "sepolia")
-    r = client.post("/api/execute", json={"action": "transfer", "to": "0xAlice", "amount": "10"})
+    r = client.post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "10"})
     assert r.json()["explorer_url"] == "https://sepolia.etherscan.io/tx/0xabc123"
 
 
