@@ -29,6 +29,34 @@ def test_from_base_units():
     assert erc20.from_base_units(erc20.MAX_UINT256) == "unlimited"
 
 
+@pytest.mark.parametrize("text, raw", [
+    ("1234567890123456789012345678901234567890", 1234567890123456789012345678901234567890 * 10**18),   # 40 digits
+    ("1000000000000000000000000000.000000000000000001", 10**45 + 1),         # big integer part AND the 18th decimal
+    ("9" * 100, int("9" * 100) * 10**18),
+])
+def test_to_base_units_is_exact_for_long_amounts(text, raw):
+    """The default Decimal context keeps 28 digits and would round these silently (the encoded amount would be wrong)."""
+    assert erc20.to_base_units(text) == raw
+
+
+def test_an_amount_too_big_to_convert_exactly_is_refused_not_rounded():
+    with pytest.raises(ValueError):
+        erc20.to_base_units("1" + "2" * 299)
+
+
+@pytest.mark.parametrize("raw", [2**255, 123456789012345678901234567890123456789012345, 10**60 + 1])
+def test_from_base_units_is_exact_for_large_values(raw):
+    from decimal import Context, Decimal, localcontext
+    with localcontext(Context(prec=200)):
+        exact = format(Decimal(raw) / Decimal(10) ** 18, "f").rstrip("0").rstrip(".")
+    assert erc20.from_base_units(raw) == exact
+
+
+def test_long_amounts_survive_a_round_trip():
+    text = "1000000000000000000000000000.000000000000000001"
+    assert erc20.from_base_units(erc20.to_base_units(text)) == text
+
+
 def test_decode_roundtrip_offline():
     data = Web3().eth.contract(abi=erc20.ERC20_ABI).encode_abi("transfer", args=[ALICE, 10**18])
     function, args = erc20.decode(data)

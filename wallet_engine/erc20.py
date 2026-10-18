@@ -3,13 +3,18 @@
 Amounts are always strings in token units (e.g. "12.5") at the edges and integers
 (base units, 18 decimals) on-chain. Never use float for money.
 """
-from decimal import Decimal, InvalidOperation
+from decimal import Context, Decimal, Inexact, InvalidOperation, localcontext
 
 from web3 import Web3
 
 from shared.types import ActionRequest, TxPlan
 
 MAX_UINT256 = 2**256 - 1
+
+# The default Decimal context keeps 28 digits and ROUNDS silently, which turns a long amount into a different one.
+# 200 digits hold any uint256 (78 digits) times 10**18 exactly; Inexact is trapped so that anything that still does
+# not fit is refused instead of rounded.
+_EXACT = Context(prec=200, traps=[InvalidOperation, Inexact])
 
 # Minimal standard ERC-20 ABI: enough for every action this project uses.
 ERC20_ABI = [
@@ -58,17 +63,22 @@ def to_base_units(amount: str, decimals: int = 18) -> int:
         raise ValueError(f"Not a number: {amount!r}")
     if value < 0:
         raise ValueError("Amount cannot be negative")
-    raw = value * (Decimal(10) ** decimals)
-    if raw != raw.to_integral_value():
-        raise ValueError(f"Too many decimal places (max {decimals})")
-    return int(raw)
+    try:
+        with localcontext(_EXACT):
+            raw = value * (Decimal(10) ** decimals)
+            if raw != raw.to_integral_value():
+                raise ValueError(f"Too many decimal places (max {decimals})")
+            return int(raw)
+    except Inexact:
+        raise ValueError("Amount has too many digits to be converted exactly")
 
 
 def from_base_units(raw: int, decimals: int = 18) -> str:
     """12500000000000000000 -> '12.5'. MAX_UINT256 -> 'unlimited'."""
     if raw == MAX_UINT256:
         return "unlimited"
-    text = format(Decimal(raw) / (Decimal(10) ** decimals), "f")
+    with localcontext(_EXACT):
+        text = format(Decimal(raw) / (Decimal(10) ** decimals), "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
 
 
