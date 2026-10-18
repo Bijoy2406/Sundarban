@@ -127,9 +127,9 @@ def _execute_result(req, tx_plan, decision):
     except wallet_engine.ExecutionPending as exc:
         return _pending_result(decision, exc)
     except wallet_engine.ExecutionRefused as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=redact(exc)) from exc
     except wallet_engine.ExecutionFailed as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transaction execution failed ({type(exc).__name__}).") from exc
     return _jsonable({"status": "executed", "decision": asdict(decision),
@@ -239,7 +239,7 @@ def plan(body: PlanRequest):
         sim = wallet_engine.simulate(tx_plan)
         decision = firewall.preview(req, tx_plan, sim)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot build or evaluate transaction ({type(exc).__name__}).") from exc
     return _jsonable({"request": asdict(req), "plan": asdict(tx_plan),
@@ -253,7 +253,7 @@ def execute(body: PlanRequest):
     try:
         tx_plan, _sim, decision = _plan_simulate_evaluate(req)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot build or evaluate transaction ({type(exc).__name__}).") from exc
     return _execute_result(req, tx_plan, decision)
@@ -281,7 +281,7 @@ def confirm(body: ConfirmRequest):
         tx_plan = wallet_engine.plan(req)
         decision = firewall.confirm(req, tx_plan)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot confirm transaction ({type(exc).__name__}).") from exc
     if decision.decision != "allow":
@@ -292,9 +292,9 @@ def confirm(body: ConfirmRequest):
     except wallet_engine.ExecutionPending as exc:
         return _pending_result(decision, exc)
     except wallet_engine.ExecutionRefused as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=redact(exc)) from exc
     except wallet_engine.ExecutionFailed as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transaction execution failed ({type(exc).__name__}).") from exc
     return _jsonable({"status": "executed", "decision": asdict(decision),
@@ -332,7 +332,7 @@ def attack_replay(body: AttackReplayRequest):
     try:
         return _jsonable(replay.run(item))
     except replay.ReplayRefused as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+        raise HTTPException(status_code=exc.status_code, detail=redact(exc)) from None
     except Exception as exc:
         raise HTTPException(
             status_code=503,

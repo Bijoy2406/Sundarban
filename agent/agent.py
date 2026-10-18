@@ -18,6 +18,7 @@ import wallet_engine
 from agent.intents import IntentParseError, check_intent, parse_intent
 from agent.resolve import UserInputError, require_address
 from agent.resolve import resolve_token as _resolve_token
+from shared.redact import redact
 from shared.types import ActionRequest, AgentReply, Decision, TxPlan
 from wallet_engine.binding import token_binding
 
@@ -144,7 +145,7 @@ def _handle(get_intent, origin: str) -> AgentReply:
         try:
             tx_plan = wallet_engine.plan(req)
         except ValueError as exc:
-            raise UserInputError(f"I can't build that transaction: {exc}") from exc
+            raise UserInputError(f"I can't build that transaction: {redact(exc)}") from exc
         sim = wallet_engine.simulate(tx_plan)
         decision = firewall.evaluate(req, tx_plan, sim)
 
@@ -173,7 +174,7 @@ def _handle(get_intent, origin: str) -> AgentReply:
         return _pending_reply(exc, decision)
     except wallet_engine.ExecutionRefused as exc:
         # Written by the wallet engine in plain English and safe to show (it never contains a secret).
-        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
+        return AgentReply(text=f"Nothing was sent. {redact(exc)}", blocked=True)
     except Exception as exc:
         # Never leak provider errors, transaction internals, or secrets into chat.
         return AgentReply(
@@ -216,7 +217,7 @@ def confirm_pending(request_id: str) -> AgentReply:
     except wallet_engine.ExecutionPending as exc:
         return _pending_reply(exc, decision)
     except wallet_engine.ExecutionRefused as exc:
-        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
+        return AgentReply(text=f"Nothing was sent. {redact(exc)}", blocked=True)
     except Exception as exc:
         return AgentReply(
             text=f"I couldn't safely complete the confirmation ({type(exc).__name__}). No success is being reported.",

@@ -43,6 +43,8 @@ sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from shared.redact import redact  # noqa: E402
+
 load_dotenv(ROOT / ".env")
 
 ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"   # Anvil public test account #1
@@ -147,17 +149,17 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
                 row["note"] += f" | unknown decision {decision.decision!r}"
         except ExecutionRefused as exc:
             row["status"] = "refused"
-            row["note"] += f" | execute refused: {exc}"
+            row["note"] += f" | execute refused: {redact(exc)}"
         except ExecutionFailed as exc:
             row["status"] = "failed"
-            row["note"] += f" | {exc}"
+            row["note"] += f" | {redact(exc)}"
         except ExecutionPending as exc:                  # broadcast, outcome unknown: keep the hash, do not count it as sent
             row["status"] = "pending"
             row["tx_hash"] = exc.tx_hash
             row["note"] += " | broadcast but no receipt yet (not counted as sent)"
         except Exception as exc:                         # report and keep going; never hide it
             row["status"] = "error"
-            row["note"] += f" | {type(exc).__name__}: {exc}"
+            row["note"] += f" | {type(exc).__name__}: {redact(exc)}"
         if row["first"] and row["first"] not in s.expect:
             row["note"] += f" | UNEXPECTED first decision {row['first']!r} (expected {s.expected})"
             row["unexpected"] = True
@@ -255,7 +257,7 @@ def main(argv=None, fw=None) -> int:
         if not os.getenv("APPROVAL_SECRET"):
             raise RuntimeError("APPROVAL_SECRET is not set in .env")
     except Exception as exc:
-        print(f"PREFLIGHT FAILED: {exc}")
+        print(f"PREFLIGHT FAILED: {redact(exc)}")
         return 2
 
     recipients = {"A": args.recipient_a, "B": args.recipient_b}
