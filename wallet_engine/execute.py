@@ -131,7 +131,12 @@ def run(plan: TxPlan, decision: Decision) -> str:
             **_fee_fields(w3),
         }
         signed = account.sign_transaction(tx)
-        tx_hash = _hex(w3.eth.send_raw_transaction(signed.raw_transaction))
+        tx_hash = _hex(signed.hash)          # known before anything is sent, so a send that fails midway can still be traced
+        try:
+            tx_hash = _hex(w3.eth.send_raw_transaction(signed.raw_transaction))
+        except Exception:       # a timeout or a dropped connection: the node may have accepted it, so it is not a failure
+            _audit({"event": "TX_PENDING", "request_id": decision.request_id, "tx_hash": tx_hash})
+            raise ExecutionPending(tx_hash) from None
     _audit({"event": "TX_SENT", "request_id": decision.request_id, "tx_hash": tx_hash,
             "action": binding["action"], "token": binding["token"], "to": binding["to"], "amount": binding["amount"]})
 

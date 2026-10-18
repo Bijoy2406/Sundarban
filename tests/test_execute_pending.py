@@ -171,3 +171,42 @@ def test_chat_and_execute_endpoints_say_pending(monkeypatch):
     body = client.post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "5"}).json()
     assert body["status"] == "pending" and body["tx_hash"] == "0x" + "ef" * 32 and body["executed"] is False
     assert "do not send it twice" in body["message"]
+
+
+# ------------------------------------------------------------------ the broadcast itself fails or times out
+
+class SendFails(FakeEth):
+    """The node may have accepted the transaction, but the answer never came back."""
+
+    def __init__(self, error):
+        super().__init__()
+        self.error, self.raw_seen = error, []
+
+    def send_raw_transaction(self, raw):
+        self.raw_seen.append(bytes(raw))
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [TimeoutError("read timed out"), ConnectionError("connection reset by peer")])
+def test_a_send_that_raises_after_signing_is_pending_with_the_signed_hash(node, error):
+    """Neither 'failed' nor 'sent': the transaction may still be mined. The hash is computed from the signed bytes,
+    so the person can look it up and a retry does not pay twice."""
+    eth = node(SendFails(error))
+    req, plan = make_plan()
+    with pytest.raises(execute.ExecutionPending) as caught:
+        wallet_engine.execute(plan, allow(req, plan))
+    expected = "0x" + Web3.keccak(eth.raw_seen[0]).hex().removeprefix("0x")
+    assert caught.value.tx_hash == expected
+    assert "do not send it twice" in str(caught.value)
+    assert [e["event"].get("event") for e in audit.tail(10)] == ["TX_PENDING"]
+    assert audit.tail(10)[0]["event"]["tx_hash"] == expected
+
+
+def test_the_agent_and_the_api_report_a_failed_send_as_pending_not_failed(node, monkeypatch):
+    node(SendFails(TimeoutError("read timed out")))
+    req, plan = make_plan()
+    decision = allow(req, plan)
+    monkeypatch.setattr(api, "_plan_simulate_evaluate", lambda r: (plan, None, decision))
+    response = TestClient(api.app).post("/api/execute", json={"action": "transfer", "to": ALICE, "amount": "5"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending" and response.json()["tx_hash"].startswith("0x")
