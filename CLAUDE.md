@@ -69,7 +69,7 @@ web3.py v7 names: `build_transaction`, `sign_transaction`, `signed.raw_transacti
 
 ## Environment notes
 - This repo lives on an **NTFS drive** (`/run/media/salman/FCB8237BB8233414/wallet`). Keep the Python venv OFF it
-  (e.g. `~/.venvs/sentinel`). `core.fileMode` is set to false.
+  (e.g. `~/.venvs/sundarban`). `core.fileMode` is set to false.
 - GitHub: https://github.com/Bijoy2406/Sundarban (**currently private**: make it public, or add the judges, before submitting). `main` is the default branch (also `bijoy`). Issues track the work (labels person1/2/3); the "Build order" issue gives the sequence.
 
 ## Status (updated 18 Oct 2026)

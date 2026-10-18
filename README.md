@@ -148,8 +148,8 @@ git clone https://github.com/Bijoy2406/Sundarban.git
 cd Sundarban
 
 # Python (keep the virtual environment OUTSIDE the repo)
-python3 -m venv ~/.venvs/sentinel
-source ~/.venvs/sentinel/bin/activate
+python3 -m venv ~/.venvs/sundarban
+source ~/.venvs/sundarban/bin/activate
 pip install -r requirements.lock      # the exact versions the tests were run with (Python 3.14.4); requirements.txt holds loose bounds
 
 # Frontend
@@ -172,6 +172,7 @@ cp .env.example .env
 | `SEPOLIA_PRIVATE_KEY` | a fresh throwaway key from `cast wallet new`; used only when `ACTIVE_NETWORK=sepolia` | Sepolia evidence run |
 | `ATTACKER_PRIVATE_KEY` | Anvil **Account #3** private key (not #1 or #2: those are Alice and Bob on the allowlist, and the attacker must not be a trusted contact) | attack demo |
 | `APPROVAL_SECRET` | output of `python3 -c "import secrets; print(secrets.token_hex(32))"` | firewall tokens |
+| `OPERATOR_TOKEN` | another random value, at least 16 characters: `python3 -c "import secrets; print(secrets.token_hex(32))"`. Keep it to yourself: it is the key a person types into the UI's **Operator key** field to Confirm an action or to switch the kill switch OFF | Confirm, kill switch OFF |
 | `TOKEN_ADDRESS` | printed by the deploy script (step 3); locally it is `0x5FbDB2315678afecb367f032d93F642f64180aa3` | wallet |
 | `RPC_URL_SEPOLIA` | a free Sepolia RPC URL (Alchemy / Infura / public) | evidence run only |
 | `LLM_BASE_URL` | any OpenAI-compatible endpoint, default `https://api.xkiro.com/v1` | LLM |
@@ -184,12 +185,22 @@ never commit it, never paste keys into chats or screenshots.**
 
 To switch LLM provider, change only `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY`.
 
+### What works without an LLM key
+
+| Works with no `LLM_*` in `.env` | Needs `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` |
+|---|---|
+| The Preview / Execute / Confirm forms (the firewall, the engine and the audit log do not use a model) | `POST /api/chat` (the chat box: the model turns your sentence into an action) |
+| The attack replay: it uses the scripted "fooled model" action and its layer 1 shows "not tested: the model could not be reached" | Replay layer 1 ("did the model refuse?") and the replay using the **real model's** extraction |
+| `python -m pytest -q` (the model is replaced in the tests) | |
+| `python -m firewall.redteam.run`, with or without `--agents` (fixed intents replace the model) | |
+| Evidence checks: `python scripts/verify_audit.py evidence/audit_sepolia.jsonl` (the Sepolia anchor check also needs a Sepolia RPC URL) | |
+
 ---
 
 ## 3. Run it (4 terminals)
 
 Activate the Python environment in every terminal you use for Python:
-`source ~/.venvs/sentinel/bin/activate`
+`source ~/.venvs/sundarban/bin/activate`
 
 **Terminal 1: local blockchain** (leave it running)
 ```bash
@@ -202,6 +213,10 @@ python wallet_engine/scripts/deploy.py
 ```
 Expected: `TestUSD deployed on local (chain id 31337)` and token address `0x5FbDB2315678afecb367f032d93F642f64180aa3`.
 
+> **Now copy the printed token address into `.env`** as `TOKEN_ADDRESS=<address>` (the table in step 2 shows it), **before you start
+> the backend or run any test**: the firewall only allows this one token, and everything that follows needs it. On a fresh Anvil
+> the address is always the one above.
+
 **Terminal 3: backend** (from the repo root)
 ```bash
 uvicorn api.main:app --reload --port 8000
@@ -212,7 +227,12 @@ API docs: http://127.0.0.1:8000/docs
 ```bash
 cd ui && npm run dev
 ```
-Open **http://localhost:5173**
+Open **http://localhost:5173**. Paste your `OPERATOR_TOKEN` into the **Operator key** field at the top of the page: Confirm and
+"kill switch OFF" refuse to work without it (turning the kill switch ON never needs it).
+
+> **The attack replay and `python -m firewall.redteam.run --agents` need a fresh chain after any attack you ran by hand.**
+> The replay rolls itself back, but a manual drain or approval does not: stop Anvil (`Ctrl+C` in Terminal 1), start it again and
+> redeploy the token (Terminal 2). The red-team runner checks this and stops with a clear message if the wallet is not fresh.
 
 ---
 
@@ -268,7 +288,9 @@ A failure in `tests/test_contract.py` means someone changed the shared data type
 | `anvil: command not found` | add `~/.foundry/bin` to PATH (see Prerequisites) |
 | `ModuleNotFoundError` (shared, api, …) | run commands from the repo root with the venv active |
 | UI says "Backend not reachable" | start Terminal 3 (uvicorn on port 8000) |
-| ✗ Chain / ✗ TestUSD deployed | start anvil, then run the deploy script again |
+| ✗ Chain / ✗ TestUSD deployed | start anvil, then run the deploy script again, then check `TOKEN_ADDRESS` in `.env` |
+| Red-team `--agents` says "not in its fresh state" | an attack was run by hand: restart Anvil and redeploy the token |
+| Confirm or kill-switch OFF answers "Operator key missing or wrong" (403) or "Operator protection is not configured" (503) | set `OPERATOR_TOKEN` in `.env` (16+ characters), restart uvicorn, paste the same value into the UI's Operator key field |
 | Wallet card error after restarting anvil | anvil starts empty: run the deploy script again |
 | Port already in use | stop the old process, or change the port (`--port 8001`; also update `ui/vite.config.js`) |
 | LLM test fails | check the 3 `LLM_*` values in `.env`, then restart uvicorn |
