@@ -54,3 +54,23 @@ def test_used_tokens_are_forgotten_after_they_expire(monkeypatch):
     monkeypatch.setattr(tokens.time, "time", lambda: real() + 11)
     _verify(_issue("other"), "other")  # any later check cleans out the expired entry
     assert t not in tokens._USED
+
+def _prefix_variants(t):
+    """Other ways of writing the SAME expiry number: int() accepts all of them, the HMAC does not care."""
+    expiry, _, mac = t.partition(".")
+    return ["0" + t, "+" + t, " " + t, "\t" + t, "00" + t,
+            f"{expiry[:3]}_{expiry[3:]}.{mac}",      # underscores between digits
+            f"{expiry} .{mac}"]                       # trailing space inside the expiry part
+
+
+def test_a_used_token_stays_used_when_its_expiry_is_rewritten():
+    t = _issue()
+    assert _verify(t) is True
+    for variant in _prefix_variants(t):
+        assert _verify(variant) is False, repr(variant)
+
+
+def test_a_fresh_token_is_refused_in_any_non_canonical_spelling():
+    """Not only replays: the expiry must be a plain canonical integer, so odd spellings never verify at all."""
+    for variant in _prefix_variants(_issue()):
+        assert _verify(variant) is False, repr(variant)
