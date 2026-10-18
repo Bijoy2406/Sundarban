@@ -89,7 +89,7 @@ The firewall's HMAC-SHA256 token binds an approval to the request ID, action, to
 
 ### Audit log
 
-The audit logger writes JSON Lines entries linked by hashes. Verification can detect changes, deletions in the middle, insertion and reordering that break the chain. Secrets such as private keys and approval tokens must not be logged. A valid shortened log cannot prove that a final suffix was not deleted unless its expected head hash is stored independently.
+The audit logger writes JSON Lines entries linked by hashes. Verification can detect changes, deletions in the middle, insertion and reordering that break the chain. Secrets such as private keys and approval tokens must not be logged. A valid shortened log cannot prove that a final suffix was not deleted unless its expected head hash is stored independently. For the submitted evidence log the head is anchored on Sepolia (wallet_engine/scripts/anchor_audit.py, record evidence/audit_anchor_sepolia.json, transaction 0xf21f8ed702635320a4d1ea57a44cbd6073a9c176cea2147de61a70b36061ccf7); `anchor_audit.py --verify` re-checks it read-only. The anchor proves the log existed in this form at that block, not that its entries are true, and anchoring is a manual step.
 
 ## 5. Agent and public input handling (Person 3 contribution)
 

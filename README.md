@@ -249,6 +249,18 @@ python scripts/verify_audit.py tail     # newest entries
 Deleting the *last* entries leaves a valid shorter chain; to detect that, keep the head hash somewhere
 else and call `audit.verify(expected_head=...)`.
 
+**Anchored on Sepolia.** The head hash of the submitted evidence log is also written into a Sepolia
+transaction (a zero-value self-transaction whose data is `sundarban-audit-v1:` + the 32-byte head), so a
+rewrite or a cut-off of the log is detectable by anyone, using the chain's timestamp:
+
+```bash
+ACTIVE_NETWORK=sepolia python wallet_engine/scripts/anchor_audit.py --verify    # read-only, any Sepolia RPC
+```
+The record is `evidence/audit_anchor_sepolia.json` (transaction
+[`0xf21f8ed7…ccf7`](https://sepolia.etherscan.io/tx/0xf21f8ed702635320a4d1ea57a44cbd6073a9c176cea2147de61a70b36061ccf7)).
+It proves the log existed in exactly this form at that block; it does not prove the entries are true, and it is
+run by hand (`--yes`), not automatically.
+
 ## 9. The attack drainer (local chain only)
 
 Plays the attacker in the attack replay: once the wallet has granted an allowance, it pulls tokens.
@@ -344,9 +356,12 @@ python -m pytest -q
 | `tests/test_policy.py` | Deterministic firewall policy decisions | No |
 | `tests/test_simulate_execute.py` | Simulation, transaction binding and execution guards | Some tests require local chain |
 | `tests/test_audit.py`, `tests/test_audit_locking.py` | Audit integrity and concurrent writer behavior | No |
-| `tests/test_attack_replay.py` | Attack-replay API: feed items, both agents, local-only guard | No (mocked) |
+| `tests/test_attack_replay.py` | Attack replay: one extracted action for both agents, real-model-or-script, local-only guard | Offline; one live test needs Anvil |
 | `tests/test_e2e.py` | The five protected-agent scenarios (allow, ask + confirm once, PRV-01, APR-01, KIL-01) | Yes, local Anvil |
 | `tests/test_redteam_runner.py` | Red-team runner (40 attacks + 15 benign = 55/55) and its metrics | Offline; one live test needs Anvil |
+| `tests/test_redact.py` | Error text never shows an RPC URL, an API key or a private key | No |
+| `tests/test_execute_pending.py` | A broadcast transaction without a receipt is *pending*, not failed; sends never share a nonce | No (fake node) |
+| `tests/test_anchor_audit.py` | Anchoring the audit head on-chain and verifying it; a cut-off, rewritten or forged log is caught | Offline; live part needs Anvil |
 
 The full list of every test file, with test counts, is in [README_section_12_test_cases.md](README_section_12_test_cases.md). The red-team results are in [evidence/redteam_report.md](evidence/redteam_report.md) (`python -m firewall.redteam.run`).
 
