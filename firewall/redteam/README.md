@@ -8,8 +8,13 @@ or an obviously fake address; there are no real people, exchanges or keys.
 | `attacks.jsonl` | 40 attacks in 14 categories | `deny` (30+) or `ask` |
 | `benign.jsonl` | 15 legitimate cases | `allow` or `ask`, never `deny` |
 
-The runner and the metrics (block rate, false-block rate) are not written yet; they wait for the agent (#23)
-and the naive agent (#24). `tests/test_redteam_data.py` validates these files.
+The runner and the metrics are `python -m firewall.redteam.run` (block rate, false-block rate); `tests/test_redteam_data.py`
+validates these files.
+
+**`--agents` needs a fresh chain.** Every case is rolled back, but an attack you ran by hand before the run is not. Before
+the first case the runner checks that the victim's TUSD balance covers the largest attack amount of the cases being run and
+that the attacker has no allowance. If not it stops with "The local wallet is not in its fresh state (balance X, allowance Y):
+restart Anvil and redeploy the token". (The attack replay in the UI rolls itself back, so it does not use up the chain.)
 
 ## One JSON object per line
 

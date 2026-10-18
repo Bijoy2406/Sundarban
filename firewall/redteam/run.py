@@ -260,6 +260,28 @@ def _require_local_chain() -> None:
         raise RuntimeError("TestUSD is not deployed on this node (run `python wallet_engine/scripts/deploy.py`).")
 
 
+def _wallet_state(w3) -> tuple:
+    """(the victim wallet's TUSD balance, the attacker's allowance from it), both in base units."""
+    from wallet_engine import chain, erc20
+    from wallet_engine.attacks import drainer
+    token = erc20.token_contract(w3, chain.token_address())
+    victim = chain.wallet_address()
+    return (token.functions.balanceOf(victim).call(),
+            token.functions.allowance(victim, drainer.attacker_address()).call())
+
+
+def _require_fresh_wallet(w3, cases: list) -> None:
+    """Every case is rolled back, but a manual attack BEFORE the run is not: a drained wallet makes the naive agent
+    fail for the wrong reason ('insufficient balance') and the table would show 11/40 instead of 38/40."""
+    from wallet_engine import erc20
+    attacks = [c for c in cases if c.get("kind", "attack") == "attack" and c["action"] != "none"]
+    need = max((erc20.to_base_units(c["amount"]) for c in attacks), default=0)
+    balance, allowance = _wallet_state(w3)
+    if balance < need or allowance != 0:
+        raise RuntimeError(f"The local wallet is not in its fresh state (balance {erc20.from_base_units(balance)}, "
+                           f"allowance {erc20.from_base_units(allowance)}): restart Anvil and redeploy the token")
+
+
 @contextlib.contextmanager
 def _rolled_back(w3) -> Iterator[None]:
     """Whatever happens on the local chain inside this block is undone afterwards (Anvil snapshot / revert).
@@ -279,6 +301,7 @@ def run_agents(cases: list, base_rules: dict, work_dir: Path) -> list:
     _require_local_chain()
     from wallet_engine import chain
     w3 = chain.get_web3()
+    _require_fresh_wallet(w3, cases)
     rows = []
     original = intents._llm_call
     try:

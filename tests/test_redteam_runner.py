@@ -304,3 +304,77 @@ def test_live_protected_agent_blocks_what_the_naive_agent_executes(live_chain, t
     assert am["protected"]["benign_executed"] == 1                # ben-001 is allowed, ben-013 asks
     assert run.all_passed(report)
     assert chain.balances() == before                             # every case was rolled back
+
+# ------------------------------------------------------------------ --agents needs a chain nobody has attacked yet
+
+ONE = 10 ** 18
+
+
+def _fresh_state(monkeypatch, balance, allowance):
+    monkeypatch.setattr(run, "_wallet_state", lambda w3: (balance, allowance))
+
+
+def test_a_fresh_wallet_passes_the_freshness_check(monkeypatch):
+    cases = run.load_cases(only=["atk-012", "atk-018"])
+    biggest = max(int(c["amount"]) for c in cases)
+    _fresh_state(monkeypatch, biggest * ONE, 0)                       # exactly the largest attack amount is enough
+    run._require_fresh_wallet(object(), cases)
+
+
+@pytest.mark.parametrize("balance_tokens, allowance_raw, shown", [
+    (0, 0, "balance 0"),                                             # drained
+    (999, 0, "balance 999"),                                         # not enough for the largest attack
+])
+def test_a_used_wallet_is_refused_with_the_numbers_and_the_remedy(monkeypatch, balance_tokens, allowance_raw, shown):
+    cases = run.load_cases(only=["atk-012"])
+    _fresh_state(monkeypatch, balance_tokens * ONE, allowance_raw)
+    with pytest.raises(RuntimeError) as caught:
+        run._require_fresh_wallet(object(), cases)
+    text = str(caught.value)
+    assert "not in its fresh state" in text and shown in text and "restart Anvil and redeploy the token" in text
+
+
+def test_an_open_allowance_to_the_attacker_is_refused(monkeypatch):
+    cases = run.load_cases(only=["atk-001"])
+    _fresh_state(monkeypatch, 10 ** 6 * ONE, 5 * ONE)
+    with pytest.raises(RuntimeError, match=r"allowance 5\b.*restart Anvil and redeploy"):
+        run._require_fresh_wallet(object(), cases)
+
+
+def test_only_the_cases_being_run_set_the_required_balance(monkeypatch):
+    small = run.load_cases(only=["atk-012"])                          # a 5,000 attack: 5,000 TUSD is enough for this run
+    _fresh_state(monkeypatch, 5000 * ONE, 0)
+    run._require_fresh_wallet(object(), small)
+    _fresh_state(monkeypatch, 5000 * ONE, 0)
+    with pytest.raises(RuntimeError, match="not in its fresh state"):
+        run._require_fresh_wallet(object(), run.load_cases(only=["atk-001"]))    # a 1,000,000 attack needs more
+
+
+def test_run_agents_checks_freshness_before_it_sends_anything(monkeypatch, tmp_path):
+    from wallet_engine import chain
+    monkeypatch.setattr(run, "_require_local_chain", lambda: None)
+    monkeypatch.setattr(chain, "get_web3", lambda: object())
+    sent = []
+    monkeypatch.setattr(run, "_begin_case", lambda *a, **k: sent.append("started"))
+    _fresh_state(monkeypatch, 0, 0)
+    with pytest.raises(RuntimeError, match="not in its fresh state"):
+        run.run_agents(run.load_cases(only=["atk-012"]), {}, tmp_path)
+    assert sent == []
+
+
+def test_live_the_freshness_check_sees_a_real_attack(live_chain):
+    """On a real Anvil: fresh passes; after the attacker is approved, then after it drains the wallet, it is refused."""
+    import wallet_engine
+    from agent import naive_agent
+    from wallet_engine.attacks import drainer
+    cases = run.load_cases(only=["atk-012"])
+    run._require_fresh_wallet(live_chain, cases)
+    attacker = drainer.attacker_address()
+    reply = naive_agent.handle_intent({"action": "approve", "token": "TUSD", "to": attacker, "amount": "0",
+                                       "unlimited": True, "rationale": "x"}, origin="user_chat")
+    assert reply.tx_hash, reply.text
+    with pytest.raises(RuntimeError, match="allowance unlimited|allowance"):
+        run._require_fresh_wallet(live_chain, cases)
+    drainer.drain()
+    with pytest.raises(RuntimeError, match="balance 0"):
+        run._require_fresh_wallet(live_chain, cases)
