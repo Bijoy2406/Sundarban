@@ -81,7 +81,7 @@ Code and evidence are complete; what remains is the presentation material and se
 - [x] Red-team: 40 attacks + 15 benign cases, runner and report (`python -m firewall.redteam.run`): 55/55, 0/40 attacks let through,
       0/15 wrongly denied; both agents on Anvil: protected executes 0/40, naive executes 38/40
 - [x] Sepolia evidence run through the real pipeline: 6 transactions sent, 2 denied (`evidence/tx_hashes.csv`); audit head anchored on Sepolia
-- [x] Tests: 1170 passed / 1 skipped with Anvil, 1108 passed / 63 skipped without
+- [x] Tests: 1235 passed / 1 skipped with Anvil, 1173 passed / 63 skipped without
 - [x] Documents: `README.md`, `docs/technical_overview.md`, `docs/security_self_assessment.md`, `docs/tech_chain_layer.md`
 - [ ] Deck (10 minutes at most), demo video (5 minutes at most, no keys on screen), final email: drafts in `docs/presentation_outline.md`,
       `docs/demo_video_script.md`, `docs/submission_package.md`. Issue #28 stays open until these exist.

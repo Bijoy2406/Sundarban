@@ -33,11 +33,11 @@ absorbs the attack before it reaches the funds.
 
 | Evidence | Result | Reproduce |
 |---|---|---|
-| Automated tests (local Anvil + TestUSD) | **1170 passed, 1 skipped** | `python -m pytest -q` |
-| Automated tests (no chain) | 1108 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Automated tests (local Anvil + TestUSD) | **1235 passed, 1 skipped** | `python -m pytest -q` |
+| Automated tests (no chain) | 1173 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
 | Red-team suite (40 attacks, 15 legitimate) | 55/55 as expected; 36 denied, 4 held, **0 let through**; **0/15** wrongly denied | `python -m firewall.redteam.run --no-write` |
 | Same attacks through both real agents | protected agent executed **0/40**; naive agent executed **38/40** | `python -m firewall.redteam.run --agents --no-write` |
-| Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` |
+| Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv`; the wallet's complete history of 15 sends: [security self-assessment 7.4](docs/security_self_assessment.md#74-sepolia-wallet-activity-complete-list) |
 | Audit log of that run | 16 entries, chain intact | `python scripts/verify_audit.py evidence/audit_sepolia.jsonl` |
 | Audit head anchored on Sepolia | `RESULT: OK` | `ACTIVE_NETWORK=sepolia python wallet_engine/scripts/anchor_audit.py --verify` (read-only) |
 
@@ -240,7 +240,7 @@ Preview calls `firewall.preview`, which has **no side effects** (it is not count
 ```bash
 python -m pytest -q
 ```
-With anvil running and the token deployed: **1170 passed, 1 skipped** (the one skip is a retired check that applied only to an older firewall). Without anvil: **1108 passed, 63 skipped** (the chain tests are skipped, shown as `s`, and a skipped test did not pass).
+With anvil running and the token deployed: **1235 passed, 1 skipped** (the one skip is a retired check that applied only to an older firewall). Without anvil: **1173 passed, 63 skipped** (the chain tests are skipped, shown as `s`, and a skipped test did not pass).
 A failure in `tests/test_contract.py` means someone changed the shared data types or function signatures.
 
 ---
@@ -381,8 +381,8 @@ python -m pytest -q
 
 | Situation | Result (measured 18 Oct 2026) |
 |---|---|
-| anvil running, token deployed | **1170 passed, 1 skipped** (a retired check in `test_evidence_run.py`) |
-| no anvil | **1108 passed, 63 skipped**: the 63 tests that need the local chain show as `s` |
+| anvil running, token deployed | **1235 passed, 1 skipped** (a retired check in `test_evidence_run.py`) |
+| no anvil | **1173 passed, 63 skipped**: the 63 tests that need the local chain show as `s` |
 
 A skipped test did not pass; it means its prerequisite was unavailable. The counts grow as tests are added;
 `python -m pytest --collect-only -q | tail -1` gives the current total. Every live test uses the **local** chain only and

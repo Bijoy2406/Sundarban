@@ -175,7 +175,7 @@ Top 10 (2026) mapping, evidence, and an honest known-risk list. In short:
 | Deterministic firewall, default deny | A rule table can be read, tested and proved; a model cannot |
 | Origin set by code from the channel | A message cannot grant itself trust (PRV-01) |
 | Numbers read from calldata, token bound to calldata | "Approve A, send B" fails; a lying plan summary cannot pass |
-| Single-use, 120-second token; kill switch cancels tokens | A leaked or replayed token is useless |
+| Single-use, 120-second token (keyed by signature, canonical expiry); never sent to the browser; kill switch cancels tokens | A leaked or replayed token is useless |
 | Human confirmation for risky actions, outside the chat | An agent cannot confirm for itself |
 | No audit entry, no money | Every `allow` has a record before it has an effect |
 | Limits count approvals as spending | An allowance can be pulled out later |
@@ -222,11 +222,11 @@ The step-by-step path (setup, `.env`, four terminals, health check) is the READM
 
 | Evidence | Result | Where / command |
 |---|---|---|
-| Automated tests, local Anvil + TestUSD | 1170 passed, 1 skipped | `python -m pytest -q` |
-| Automated tests, no chain | 1108 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Automated tests, local Anvil + TestUSD | 1235 passed, 1 skipped | `python -m pytest -q` |
+| Automated tests, no chain | 1173 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
 | Red-team suite | 55/55 as expected; 36 denied, 4 held, 0 of 40 attacks let through; 0/15 legitimate requests wrongly denied | `python -m firewall.redteam.run --no-write`; report `evidence/redteam_report.md` |
 | Same attacks through both real agents | protected agent executed 0/40; naive agent 38/40 | `python -m firewall.redteam.run --agents --no-write` (local Anvil) |
-| Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` (hashes and explorer links in the self-assessment, section 7.3) |
+| Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` (hashes and explorer links in the self-assessment, section 7.3; the wallet's complete history of 15 sends, including 4 unintended test-run transactions, is in [section 7.4](security_self_assessment.md#74-sepolia-wallet-activity-complete-list)) |
 | Audit log of that run | 16 entries, chain intact, head anchored on Sepolia | `python scripts/verify_audit.py evidence/audit_sepolia.jsonl` |
 
 The organizer confirmed that Sepolia testnet transaction hashes are accepted as on-chain execution evidence.

@@ -171,7 +171,7 @@ Hard limits, checked in this order before any transaction is sent:
 The chain layer's tests are `tests/test_erc20.py` (14), `tests/test_simulate_execute.py` (27),
 `tests/test_testusd_local.py` (6), `tests/test_drainer.py` (17), `tests/test_execute_pending.py` (6),
 `tests/test_chain_approvals_fallback.py` (6) and `tests/test_evidence_run.py` (12). The whole project suite is
-**1170 passed, 1 skipped** with a local Anvil and the token deployed, and 1108 passed, 63 skipped without a chain
+**1235 passed, 1 skipped** with a local Anvil and the token deployed, and 1173 passed, 63 skipped without a chain
 (the live tests skip themselves; a skipped test did not pass). Live tests are rolled back with
 `evm_snapshot` / `evm_revert` and run on the local chain only.
 
