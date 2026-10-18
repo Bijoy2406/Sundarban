@@ -390,7 +390,7 @@ VEL-01 because requests from the owner's chat count towards the velocity limit (
 
 ## 11. Documentation and submission materials
 
-- [Technical documentation](docs/technical_overview.md): system architecture, the decision algorithm, security design, API, how to run it.
+- [Technical documentation](docs/technical_overview.md): system architecture, the decision algorithm, security design, API, how to run it. A PDF copy for e-mail is `docs/technical_overview.pdf`.
 - [Security self-assessment](docs/security_self_assessment.md): permission tiers, every firewall rule with its threshold, trust boundaries, OWASP LLM/Agentic mapping, the known-risk list and what is not solved.
 - [Chain layer](docs/tech_chain_layer.md): how transactions are planned, simulated and sent, and why `execute` needs an approval token.
 - [Presentation outline (under 10 minutes)](docs/presentation_outline.md): timed slide plan and key messages.

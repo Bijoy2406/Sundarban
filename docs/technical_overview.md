@@ -70,20 +70,26 @@ with a request id.
 evaluate(request, plan, simulation):
  1. SNAPSHOT   copy request, plan and simulation once, with strict type and length checks.
                Anything unusable → deny (DEF-01). Every later rule reads the same copy.
- 2. RULES      load rules.yaml with the strict loader (unknown/duplicate keys or bad numbers → unusable → deny).
+ 2. RULES      load rules.yaml with the strict loader (unknown or duplicate keys, bad numbers →
+               unusable → deny).
  3. FINDINGS   run EVERY check and collect (rule id, deny|ask, reason); nothing stops early:
                  origin (PRV-01) · kill switch (KIL-01) · chain (NET-01) · token contract (TOK-01)
                  calldata is plain hex and decodes (SIM-01)
                  calldata matches the request to the last digit (SIM-01)
                  dry run succeeded, outflow ≤ requested (SIM-01)
-                 transfer: burn address (DST-01) · look-alike (ADR-01) · limits (LIM-01/02/03) · new recipient (ALW-01)
-                 approve:  unlimited (APR-01) · look-alike (ADR-01) or not allowlisted (APR-02) · limits
+                 transfer: burn address (DST-01) · look-alike (ADR-01) · limits (LIM-01/02/03)
+                           · new recipient (ALW-01)
+                 approve:  unlimited (APR-01) · look-alike (ADR-01) or not allowlisted (APR-02)
+                           · limits
                  too many recent actions (VEL-01)
  4. DECIDE     any deny → deny;  else any ask → ask;  else allow.   (default is deny)
- 5. COUNT      an action from a trusted origin is counted for VEL-01 (outsiders cannot throttle the owner).
+ 5. COUNT      an action from a trusted origin is counted for VEL-01 (outsiders cannot throttle
+               the owner). The window is kept in logs/velocity.jsonl, so a restart does not hand out
+               a fresh budget; an unreadable file counts as 'at the limit'.
  6. ALLOW      issue the approval token (120 s) → write the audit entry (must succeed) →
                record the spend in the HMAC-chained ledger (must succeed).  Any failure → deny.
-    ASK        remember (action, token, recipient, amount) for this request id for 600 s; return no token.
+    ASK        remember (action, token, recipient, amount) for this request id for 600 s;
+               return no token.
     DENY       return the rule ids and reasons; nothing is issued.
 ```
 
@@ -108,7 +114,9 @@ A person answers an `ask` outside the chat (the UI Confirm button, which calls `
 ### 3.3 The approval token (`firewall/tokens.py`)
 
 `"<expiry>.<HMAC-SHA256>"` over `[request_id, action, token, recipient, amount, expiry]` with `APPROVAL_SECRET`.
-Valid 120 seconds, accepted once, refused while the kill switch is on. Because the fields are the ones read from the
+Valid 120 seconds, accepted once, refused while the kill switch is on. Spent signatures are appended to
+`logs/used_tokens.jsonl` and flushed to disk before the token counts as used, so a restart does not forget them; an
+unreadable file refuses every token (fail closed). Because the fields are the ones read from the
 calldata, a token for "approve 20 to A" cannot authorise "send 500 to B".
 
 ### 3.4 Execution (`wallet_engine/execute.py`)
@@ -117,8 +125,11 @@ Refuses (nothing sent) unless: the decision is `allow` with a token; `verify_tok
 from the bytes about to be signed; the plan is for this wallet and the connected chain; value is 0; gas is between
 21,000 and 500,000; and a fresh simulation succeeds. It then signs (EIP-1559 fees when available, gas +20% capped),
 sends under a lock so two requests never share a nonce, and waits up to 120 seconds for the receipt. A transaction
-that was broadcast but has no receipt is reported as **pending** with its hash, never as failed, so it is not sent
-twice. Events (`EXECUTE_REFUSED`, `TX_SENT`, `TX_PENDING`, `TX_FAILED`) go to the audit log on a best-effort basis.
+that was broadcast but has no receipt (or whose send call timed out or dropped) is reported as **pending** with its hash,
+never as failed, so it is not sent twice. If the node *answers* with a JSON-RPC rejection (nonce too low, underpriced,
+insufficient funds) nothing is in the mempool, so that is a refusal. Events (`EXECUTE_REFUSED`, `TX_SENT`,
+`TX_PENDING`, `TX_FAILED`) go to the audit log on a best-effort basis and a failed write is logged as a warning, never
+silently; the firewall's own decision entry is the strict one (no audit entry, no money).
 
 ### 3.5 Preview has no side effects (`policy.preview`)
 
@@ -138,7 +149,7 @@ Summary; the full chapter is [tech_chain_layer.md](tech_chain_layer.md).
   reason. It reads the outflow from the same calldata the firewall decodes, so it catches transactions that would
   fail or that differ from the request, not a token that moves more than its calldata says; that is why only our own
   token contract is allowed (TOK-01).
-- **Test asset:** TestUSD, a dependency-free ERC-20 (18 decimals, no owner, no mint). Deployments are recorded in
+- **Test asset:** TestUSD, a dependency-free ERC-20 (18 decimals; 1,000,000 TUSD are minted to the deployer in the constructor; no owner and no later mint). Deployments are recorded in
   `evidence/deployments.json`.
 - **Error text:** anything an exception puts in front of a person goes through `shared/redact.py`, which hides URLs
   and the values of secret settings (an RPC URL carries its API key).
@@ -162,7 +173,9 @@ Summary; the full chapter is [tech_chain_layer.md](tech_chain_layer.md).
   without the fence: if the real model extracts an action that pays the attacker it is used (`source: llm`),
   otherwise a fixed script produces the action a fooled model would (`source: scripted`), and the page says which.
   Then the naive agent signs it and loses the test funds (via an unlimited approval and the drainer), while the
-  protected agent is blocked with the reasons. Local Anvil only.
+  protected agent is blocked with the reasons. Local Anvil only. The local chain is rolled back (Anvil snapshot and
+  revert) after every replay, so it can be run again; if the model cannot be reached, layer 1 says "not tested", not
+  "refused".
 
 ## 6. Security design
 
@@ -179,6 +192,9 @@ Top 10 (2026) mapping, evidence, and an honest known-risk list. In short:
 | Human confirmation for risky actions, outside the chat | An agent cannot confirm for itself |
 | No audit entry, no money | Every `allow` has a record before it has an effect |
 | Limits count approvals as spending | An allowance can be pulled out later |
+| Operator key (`OPERATOR_TOKEN`, header `X-Operator-Token`) for Confirm and for switching the kill switch **off**; fail closed when unset | The chat agent, and anything that can only talk to the chat, cannot confirm or unfreeze: a second secret is needed (switching the kill switch **on** stays open) |
+| Host allowlist (`localhost`, `127.0.0.1`) | A web page cannot call the local API through DNS rebinding |
+| Spent tokens, the velocity window and the daily-spend ledger kept on disk | A restart does not reset the limits |
 | Secrets redacted in errors and logs | Provider errors carry RPC URLs and API keys |
 | Demo attacker, naive agent and replay are local-chain only | They cannot touch Sepolia |
 
@@ -200,30 +216,33 @@ that its entries are true, and it covers only the evidence log.
 | `GET /api/health`, `GET /api/wallet` | chain/LLM status; balances and allowances |
 | `POST /api/plan` | **Preview**: plan + simulation + `firewall.preview`; no side effects, cannot be confirmed |
 | `POST /api/execute` | rebuild, simulate, `firewall.evaluate` on the server; sends only on `allow`; `ask` → `awaiting_confirmation` |
-| `POST /api/confirm` | continue a server-remembered `ask` by request id |
+| `POST /api/confirm` | continue a server-remembered `ask` by request id; needs the operator key |
 | `POST /api/chat` | message → protected agent (origin `user_chat`) |
-| `GET /api/security`, `POST /api/kill-switch` | read / set the emergency stop |
+| `GET /api/security`, `POST /api/kill-switch` | read / set the emergency stop (switching it off needs the operator key) |
 | `GET /api/audit` | newest audit entries and the chain check |
 | `GET /api/feed`, `POST /api/attack-replay` | synthetic feed; run one attack against both agents (local Anvil only) |
 | `GET /api/llm/status`, `POST /api/llm/test` | LLM configuration (the key is never returned); connection test |
 
 The UI offers chat, a transaction preview with a colour-coded decision card, a confirm action, the kill switch, an audit
-viewer and the side-by-side attack replay. It displays decisions; it never authorises by sending one. The API has
-no authentication (single-user local demo; see risk R-03).
+viewer, an Operator key field and the side-by-side attack replay. It displays decisions; it never authorises by sending
+one. Preview, execute and chat have no login (single-user local demo, served only to the Host names `localhost` and
+`127.0.0.1`); Confirm and kill-switch OFF need the operator key, which is one shared secret on the same machine (risk R-03).
 
 ## 8. Reproduce the local setup
 
 Requirements: Python 3.14 (the only version tested; 3.11 to 3.13 not verified; exact package versions in `requirements.lock`), Node.js 20.19+ or 22.12+, Foundry (anvil, forge, cast), Git.
 The step-by-step path (setup, `.env`, four terminals, health check) is the README, sections 1 to 4:
 [README.md](../README.md#1-prerequisites-install-once). In short: `anvil`; `python wallet_engine/scripts/deploy.py`;
-`uvicorn api.main:app --port 8000`; `cd ui && npm run dev`; open http://localhost:5173.
+`uvicorn api.main:app --port 8000`; `cd ui && npm run dev`; open http://localhost:5173. Set `OPERATOR_TOKEN` in `.env`
+(16+ random characters) and paste it into the UI's Operator key field to Confirm or switch the kill switch off. For a
+clean demo, reset the state files first (README, "Reset the demo state").
 
 ## 9. Tests and evidence
 
 | Evidence | Result | Where / command |
 |---|---|---|
-| Automated tests, local Anvil + TestUSD | 1288 passed, 1 skipped | `python -m pytest -q` |
-| Automated tests, no chain | 1226 passed, 63 skipped (skipped is not passed) | `python -m pytest -q` |
+| Automated tests, local Anvil + TestUSD | 1357 passed, 1 skipped | `python -m pytest -q` |
+| Automated tests, no chain | 1293 passed, 65 skipped (skipped is not passed) | `python -m pytest -q` |
 | Red-team suite | 55/55 as expected; 36 denied, 4 held, 0 of 40 attacks let through; 0/15 legitimate requests wrongly denied | `python -m firewall.redteam.run --no-write`; report `evidence/redteam_report.md` |
 | Same attacks through both real agents | protected agent executed 0/40; naive agent 38/40 | `python -m firewall.redteam.run --agents --no-write` (local Anvil) |
 | Sepolia transactions through the full pipeline | 6 sent, 2 denied | `evidence/tx_hashes.csv` (hashes and explorer links in the self-assessment, section 7.3; the wallet's complete history of 15 sends, including 4 unintended test-run transactions, is in [section 7.4](security_self_assessment.md#74-sepolia-wallet-activity-complete-list)) |
@@ -242,5 +261,5 @@ The test-file index with what each file proves is in the README ("Test cases").
   in `tests/test_audit_locking.py`; a run on a real Windows machine is not recorded.
 - Open items, each with an owner and a status, are in section 8 of the
   [self-assessment](security_self_assessment.md#8-known-risk-list-and-what-is-not-solved). The main ones: the API has
-  no authentication, the firewall and the signing key share one process, `chain_id` is `null` in `rules.yaml` so NET-01
+  no login for preview, execute and chat and one shared operator key for Confirm, the firewall and the signing key share one process, `chain_id` is `null` in `rules.yaml` so NET-01
   relies on the node, and deleting local state files weakens the daily cap.
