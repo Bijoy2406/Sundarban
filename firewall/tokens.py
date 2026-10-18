@@ -24,7 +24,7 @@ STUB_TOKEN = "STUB-TOKEN"   # kept only so old code still imports; it is NOT acc
 
 MIN_SECRET_LENGTH = 16
 
-_USED = {}                  # token text -> its expiry time (kept only until it expires)
+_USED = {}                  # signature (the part after the dot) -> its expiry time (kept only until it expires)
 _USED_LOCK = threading.Lock()
 
 
@@ -66,6 +66,8 @@ def verify_token(approval_token: str, request_id: str, action: str, token_addr: 
             return False
         expiry_text, _, given_mac = approval_token.partition(".")
         expiry = int(expiry_text)
+        if str(expiry) != expiry_text:          # canonical digits only: int() also accepts "+1", " 1", "01", "1_0"
+            return False
         now = time.time()
         if now > expiry:
             return False
@@ -75,9 +77,9 @@ def verify_token(approval_token: str, request_id: str, action: str, token_addr: 
         with _USED_LOCK:
             for old in [t for t, exp in _USED.items() if exp < now]:   # forget expired ones
                 del _USED[old]
-            if approval_token in _USED:
+            if given_mac in _USED:                 # keyed by the signature itself, never by how the token was spelled
                 return False
-            _USED[approval_token] = expiry
+            _USED[given_mac] = expiry
         return True
     except Exception:
         return False

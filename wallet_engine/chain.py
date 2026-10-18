@@ -11,6 +11,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from web3 import Web3
 
+from shared.redact import redact
+
 from .erc20 import from_base_units, token_contract
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +60,7 @@ def status() -> dict:
             info["chain_id"] = w3.eth.chain_id
             info["token_deployed"] = bool(w3.eth.get_code(token_address()))
     except Exception as exc:   # report, don't crash the UI
-        info["error"] = str(exc)
+        info["error"] = redact(exc)      # provider errors contain the RPC URL, which contains the API key
     return info
 
 
@@ -85,19 +87,64 @@ def _deploy_block() -> int:
     return 0
 
 
+def _candidate_spenders() -> list:
+    """Addresses worth checking when the event scan is not possible: the allowlist and the local attacker.
+
+    These are the only spenders our own system ever talks to, so an approval made through it is found.
+    """
+    found = []
+    try:
+        import yaml
+        rules = Path(os.getenv("RULES_PATH") or ROOT / "firewall" / "rules.yaml")
+        found += [str(a) for a in (yaml.safe_load(rules.read_text(encoding="utf-8")) or {}).get("allowlist") or []]
+    except Exception:
+        pass                                   # no rules file: fewer candidates, never a crash
+    key = os.getenv("ATTACKER_PRIVATE_KEY")
+    if key:
+        try:
+            found.append(Web3().eth.account.from_key(key).address)
+        except Exception:
+            pass
+    unique = {}
+    for address in found:
+        if Web3.is_address(address):
+            unique[Web3.to_checksum_address(address)] = None
+    return sorted(unique)
+
+
+def _is_block_range_error(exc: Exception) -> bool:
+    """True only for a node refusing an eth_getLogs search because the block range (or the result) is too big.
+
+    Free RPC plans word it differently ("up to a 10 block range", "query returned more than 10000 results",
+    "exceed maximum block range"); a timeout, a rate limit or any other failure is NOT this error.
+    """
+    text = str(exc).lower()
+    return "range" in text or "10000 results" in text or "10,000 results" in text or "response size exceeded" in text
+
+
 def approvals(w3: Web3 | None = None) -> list:
     """Every spender this wallet has approved that still has a non-zero allowance.
 
     Found by scanning the token's Approval events for this owner, then reading the
     current allowance (events alone can be stale).
+
+    Free public RPC plans (for example Alchemy's free tier on Sepolia) refuse a log search over more than
+    a few blocks. On a public network, when the scan is refused for its block range, the allowance is read for
+    the known spenders instead (see _candidate_spenders). Any other error, and any error on the local chain, is raised.
     """
     w3 = w3 or get_web3()
     owner = wallet_address()
     token = token_contract(w3, token_address())
     decimals = token.functions.decimals().call()
-    events = token.events.Approval().get_logs(from_block=_deploy_block(), argument_filters={"owner": owner})
+    try:
+        events = token.events.Approval().get_logs(from_block=_deploy_block(), argument_filters={"owner": owner})
+        spenders = sorted({e["args"]["spender"] for e in events})
+    except Exception as exc:
+        if network() == "local" or not _is_block_range_error(exc):
+            raise                      # an outage or a rate limit must not look like "no approvals"
+        spenders = _candidate_spenders()
     result = []
-    for spender in sorted({e["args"]["spender"] for e in events}):
+    for spender in spenders:
         raw = token.functions.allowance(owner, spender).call()
         if raw > 0:
             result.append({"token": token.address, "spender": spender, "allowance": from_base_units(raw, decimals)})

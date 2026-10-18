@@ -21,7 +21,7 @@ from firewall import audit, policy, state
 from wallet_engine import chain, erc20
 from wallet_engine.attacks import drainer
 
-ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"      # allowlisted; also Anvil account #1 = the attacker
+ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"      # allowlisted (Anvil account #1); the attacker is account #3, which is NOT on the allowlist
 CAFE = Web3.to_checksum_address("0x" + "0" * 36 + "cafe")  # a first-time recipient that is NOT on the allowlist
 ONE = 10**18
 client = TestClient(api.app)

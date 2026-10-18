@@ -43,6 +43,8 @@ sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from shared.redact import redact  # noqa: E402
+
 load_dotenv(ROOT / ".env")
 
 ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"   # Anvil public test account #1
@@ -108,7 +110,7 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
     """Run the scenarios in order. Returns one dict per scenario (also appended to the CSV)."""
     import wallet_engine
     from shared.types import ActionRequest
-    from wallet_engine import ExecutionFailed, ExecutionRefused
+    from wallet_engine import ExecutionFailed, ExecutionPending, ExecutionRefused
 
     results = []
     for s in scenarios:
@@ -127,7 +129,8 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
             if decision.decision == "ask":
                 if confirm(req, plan, decision):
                     decision = fw.confirm(req, plan)
-                    row["note"] += " | human confirmation: " + ("scripted (--auto-confirm)" if getattr(confirm, "scripted", False) else "typed at the prompt")
+                    if decision.decision == "allow":          # only an accepted confirmation counts as one
+                        row["note"] += " | human confirmation: " + ("scripted (--auto-confirm)" if getattr(confirm, "scripted", False) else "typed at the prompt")
                 else:
                     row["status"] = "declined"
             if row["status"] == "declined":
@@ -147,13 +150,17 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
                 row["note"] += f" | unknown decision {decision.decision!r}"
         except ExecutionRefused as exc:
             row["status"] = "refused"
-            row["note"] += f" | execute refused: {exc}"
+            row["note"] += f" | execute refused: {redact(exc)}"
         except ExecutionFailed as exc:
             row["status"] = "failed"
-            row["note"] += f" | {exc}"
+            row["note"] += f" | {redact(exc)}"
+        except ExecutionPending as exc:                  # broadcast, outcome unknown: keep the hash, do not count it as sent
+            row["status"] = "pending"
+            row["tx_hash"] = exc.tx_hash
+            row["note"] += " | broadcast but no receipt yet (not counted as sent)"
         except Exception as exc:                         # report and keep going; never hide it
             row["status"] = "error"
-            row["note"] += f" | {type(exc).__name__}: {exc}"
+            row["note"] += f" | {type(exc).__name__}: {redact(exc)}"
         if row["first"] and row["first"] not in s.expect:
             row["note"] += f" | UNEXPECTED first decision {row['first']!r} (expected {s.expected})"
             row["unexpected"] = True
@@ -209,6 +216,10 @@ def main(argv=None, fw=None) -> int:
     if network not in CHAIN_IDS:
         print(f"REFUSED: ACTIVE_NETWORK must be 'local' or 'sepolia' (got {network!r})")
         return 2
+    if args.temp_allowlist and network != "local":
+        print(f"REFUSED: --temp-allowlist is for rehearsals on the local chain only (ACTIVE_NETWORK is {network!r}). "
+              "Evidence on a public network must come from the checked-in firewall/rules.yaml.")
+        return 2
     if network != "local" and not args.yes:
         print(f"This will send REAL transactions on {network} (test tokens, gas paid in test ETH).")
         print("Scenarios:")
@@ -251,7 +262,7 @@ def main(argv=None, fw=None) -> int:
         if not os.getenv("APPROVAL_SECRET"):
             raise RuntimeError("APPROVAL_SECRET is not set in .env")
     except Exception as exc:
-        print(f"PREFLIGHT FAILED: {exc}")
+        print(f"PREFLIGHT FAILED: {redact(exc)}")
         return 2
 
     recipients = {"A": args.recipient_a, "B": args.recipient_b}

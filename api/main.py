@@ -1,4 +1,4 @@
-"""Sentinel Wallet REST API with server-authoritative execution and confirmation.
+"""Sundarban REST API with server-authoritative execution and confirmation.
 
 Run from the repo root:   uvicorn api.main:app --reload --port 8000
 Docs (auto-generated):    http://127.0.0.1:8000/docs
@@ -25,10 +25,16 @@ from pydantic import BaseModel, Field
 import firewall
 import wallet_engine
 from agent import llm
+from agent import handle_message as handle_agent_message, confirm_pending as confirm_agent_pending, has_pending_confirmation, is_pending
+from agent import replay
+from agent.resolve import UserInputError, require_address
+from agent.feed import get_feed_item, get_feed_items
+from shared.redact import redact
 from shared.types import ActionRequest
 from wallet_engine import chain
+from firewall import audit, state
 
-app = FastAPI(title="Sentinel Wallet API", version="0.2.0")
+app = FastAPI(title="Sundarban API", version="0.2.0")
 _CONFIRM_TTL_SECONDS = 600
 _MAX_PENDING_CONFIRMATIONS = 1000
 _PENDING_LOCK = threading.RLock()
@@ -45,7 +51,8 @@ _PENDING_CONFIRMATIONS: dict[str, _PendingConfirmation] = {}
 
 def _jsonable(obj):
     if isinstance(obj, dict):
-        return {k: _jsonable(v) for k, v in obj.items()}
+        # The approval token is a server-side secret (wallet_engine.execute consumes it): never send it to the browser.
+        return {k: (None if k == "approval_token" else _jsonable(v)) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_jsonable(v) for v in obj]
     if isinstance(obj, int) and not isinstance(obj, bool) and abs(obj) > 2**53:
@@ -78,9 +85,13 @@ def _take_pending(request_id: str) -> ActionRequest | None:
 
 
 def _request(body: "PlanRequest", request_id: str | None = None) -> ActionRequest:
+    try:
+        to = require_address(body.to, body.action)     # the same full-address and EIP-55 checks the chat agent applies
+    except UserInputError as exc:
+        raise HTTPException(status_code=400, detail=redact(exc)) from None
     return ActionRequest(
         request_id=request_id or str(uuid.uuid4()), action=body.action,
-        token=chain.token_address(), to=body.to, amount=body.amount,
+        token=chain.token_address(), to=to, amount=body.amount,
         unlimited=body.unlimited,
         origin="user_chat",   # set by CODE from the channel (the UI form), never by an LLM
     )
@@ -99,6 +110,13 @@ def _explorer_url(tx_hash: str | None) -> str | None:
     return None
 
 
+def _pending_result(decision, exc):
+    """Broadcast but not confirmed in time: report the hash and say so. Never a failure, never a success."""
+    return _jsonable({"status": "pending", "decision": asdict(decision), "reasons": decision.reasons,
+                      "tx_hash": exc.tx_hash, "explorer_url": _explorer_url(exc.tx_hash), "executed": False,
+                      "message": str(exc)})
+
+
 def _execute_result(req, tx_plan, decision):
     if decision.decision == "deny":
         return _jsonable({"status": "denied", "decision": asdict(decision),
@@ -112,15 +130,91 @@ def _execute_result(req, tx_plan, decision):
         raise HTTPException(status_code=503, detail="Firewall returned an unknown decision; execution refused.")
     try:
         tx_hash = wallet_engine.execute(tx_plan, decision)
+    except wallet_engine.ExecutionPending as exc:
+        return _pending_result(decision, exc)
     except wallet_engine.ExecutionRefused as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=redact(exc)) from exc
     except wallet_engine.ExecutionFailed as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transaction execution failed ({type(exc).__name__}).") from exc
     return _jsonable({"status": "executed", "decision": asdict(decision),
                       "reasons": decision.reasons, "tx_hash": tx_hash,
                       "explorer_url": _explorer_url(tx_hash), "executed": True})
+
+
+class PlanRequest(BaseModel):
+    action: Literal["transfer", "approve", "revoke"]
+    to: str = Field(..., min_length=1, description="Recipient or spender")
+    amount: str = "0"
+    unlimited: bool = False
+
+
+class ConfirmRequest(BaseModel):
+    request_id: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class KillSwitchRequest(BaseModel):
+    enabled: bool
+
+
+class AttackReplayRequest(BaseModel):
+    attack_id: str = Field(..., min_length=1, max_length=80)
+
+
+@app.post("/api/chat")
+def chat(body: ChatRequest):
+    """Send a user-authored message through the protected agent; never accept a decision from the client."""
+    try:
+        reply = handle_agent_message(body.message, origin="user_chat")
+        result = asdict(reply)
+        if reply.decision is not None and reply.decision.decision == "ask":
+            result["status"] = "awaiting_confirmation"
+            result["request_id"] = reply.decision.request_id
+        elif reply.decision is not None and reply.decision.decision == "deny":
+            result["status"] = "denied"
+        elif reply.tx_hash:
+            result["status"] = "pending" if is_pending(reply) else "executed"
+            result["explorer_url"] = _explorer_url(reply.tx_hash)
+        else:
+            result["status"] = "blocked" if reply.blocked else "completed"
+        return _jsonable(result)
+    except Exception:
+        raise HTTPException(status_code=503, detail="The agent could not safely process that message. Please try again.") from None
+
+
+@app.get("/api/security")
+def security_status():
+    try:
+        return {"kill_switch_on": state.kill_switch_on()}
+    except Exception:
+        return {"kill_switch_on": True, "warning": "Kill-switch state could not be verified; wallet treated as frozen."}
+
+
+@app.post("/api/kill-switch")
+def set_kill_switch(body: KillSwitchRequest):
+    try:
+        state.set_kill_switch(body.enabled)
+        return {"kill_switch_on": state.kill_switch_on()}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not safely update the kill switch. The wallet remains frozen if state is uncertain.") from None
+
+
+@app.get("/api/audit")
+def audit_log(limit: int = 50):
+    if not 1 <= limit <= 200:
+        raise HTTPException(status_code=422, detail="Limit must be between 1 and 200.")
+    try:
+        check = audit.check()
+        entries = audit.tail(limit)
+        return {"entries": entries, "integrity": {"ok": check.ok, "count": check.entries,
+                "head": check.head, "reason": check.reason, "line": check.line}}
+    except Exception:
+        raise HTTPException(status_code=503, detail="The audit log could not be read safely.") from None
 
 
 @app.get("/api/health")
@@ -134,18 +228,7 @@ def wallet():
         return {"address": chain.wallet_address(), "token": chain.token_address(),
                 "balances": wallet_engine.balances(), "approvals": wallet_engine.approvals()}
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Cannot read wallet: {exc}")
-
-
-class PlanRequest(BaseModel):
-    action: Literal["transfer", "approve", "revoke"]
-    to: str = Field(..., min_length=1, description="Recipient or spender")
-    amount: str = "0"
-    unlimited: bool = False
-
-
-class ConfirmRequest(BaseModel):
-    request_id: str = Field(..., min_length=1)
+        raise HTTPException(status_code=503, detail=f"Cannot read wallet: {redact(exc)}")
 
 
 @app.post("/api/plan")
@@ -162,7 +245,7 @@ def plan(body: PlanRequest):
         sim = wallet_engine.simulate(tx_plan)
         decision = firewall.preview(req, tx_plan, sim)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot build or evaluate transaction ({type(exc).__name__}).") from exc
     return _jsonable({"request": asdict(req), "plan": asdict(tx_plan),
@@ -176,7 +259,7 @@ def execute(body: PlanRequest):
     try:
         tx_plan, _sim, decision = _plan_simulate_evaluate(req)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot build or evaluate transaction ({type(exc).__name__}).") from exc
     return _execute_result(req, tx_plan, decision)
@@ -187,12 +270,24 @@ def confirm(body: ConfirmRequest):
     """Confirm only a server-remembered ask. Browser cannot supply a plan or decision."""
     req = _take_pending(body.request_id)
     if req is None:
+        # Chat-originated ask requests are remembered by the protected agent, not this endpoint's plan flow.
+        if not has_pending_confirmation(body.request_id):
+            raise HTTPException(status_code=404, detail="Confirmation is missing, expired, or already used.")
+        reply = confirm_agent_pending(body.request_id)
+        if reply.decision is not None:
+            result = asdict(reply)
+            if reply.tx_hash:
+                result["status"] = "pending" if is_pending(reply) else "executed"
+                result["explorer_url"] = _explorer_url(reply.tx_hash)
+            else:
+                result["status"] = "denied" if reply.decision.decision == "deny" else "blocked"
+            return _jsonable(result)
         raise HTTPException(status_code=404, detail="Confirmation is missing, expired, or already used.")
     try:
         tx_plan = wallet_engine.plan(req)
         decision = firewall.confirm(req, tx_plan)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Cannot confirm transaction ({type(exc).__name__}).") from exc
     if decision.decision != "allow":
@@ -200,10 +295,12 @@ def confirm(body: ConfirmRequest):
                           "reasons": decision.reasons, "tx_hash": None, "executed": False})
     try:
         tx_hash = wallet_engine.execute(tx_plan, decision)
+    except wallet_engine.ExecutionPending as exc:
+        return _pending_result(decision, exc)
     except wallet_engine.ExecutionRefused as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=403, detail=redact(exc)) from exc
     except wallet_engine.ExecutionFailed as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=redact(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Transaction execution failed ({type(exc).__name__}).") from exc
     return _jsonable({"status": "executed", "decision": asdict(decision),
@@ -219,3 +316,31 @@ def llm_status():
 @app.post("/api/llm/test")
 def llm_test():
     return llm.test_connection()
+
+
+@app.get("/api/feed")
+def public_feed():
+    """Return the fixed synthetic feed; the UI can select only items marked as attacks."""
+    return {"items": [asdict(item) | {"origin": item.origin} for item in get_feed_items()]}
+
+
+@app.post("/api/attack-replay")
+def attack_replay(body: AttackReplayRequest):
+    """Run the selected synthetic attack against the naive and the protected agent (agent/replay.py).
+
+    Strictly local Anvil (chain 31337). The browser supplies only a fixed feed ID; the backend resolves the
+    text and the provenance from trusted fixtures, and both agents receive the same extracted action.
+    """
+    try:
+        item = get_feed_item(body.attack_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="That feed item was not found.") from None
+    try:
+        return _jsonable(replay.run(item))
+    except replay.ReplayRefused as exc:
+        raise HTTPException(status_code=exc.status_code, detail=redact(exc)) from None
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Attack replay could not complete safely ({type(exc).__name__}). Ensure Anvil and the test token are ready.",
+        ) from None

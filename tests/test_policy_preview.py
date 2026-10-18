@@ -238,6 +238,18 @@ def test_vel01_sixth_action_in_window_asks():
     assert d.decision == "ask" and d.rule_ids == ["VEL-01"]
 
 
+def test_vel01_reason_says_at_least_n_not_more_than_n():
+    """The rule asks once N actions are already in the window, so the sentence must not claim N is 'more than' N."""
+    for i in range(5):
+        run(rid=f"r{i}", amount="1")
+    sixth = run(rid="r6", amount="1")
+    assert sixth.decision == "ask" and sixth.rule_ids == ["VEL-01"]
+    assert "At least 5 actions were already made in the last 10 minutes (5 so far)" in sixth.reasons[0]
+    assert "more than" not in sixth.reasons[0]
+    seventh = run(rid="r7", amount="1")
+    assert seventh.rule_ids == ["VEL-01"] and "(6 so far)" in seventh.reasons[0]      # the count is real, the limit unchanged
+
+
 # ---------- precedence
 def test_deny_beats_ask():
     d = run(to=BOB, amount="501")      # new recipient (ask) + over max (deny)

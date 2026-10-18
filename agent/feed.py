@@ -38,7 +38,7 @@ _FEED_ITEMS: tuple[FeedItem, ...] = (
         id="x-benign-1",
         source="x_reply",
         title="TestUSD faucet information",
-        text="The local Sentinel demo uses TestUSD on Anvil. Check the README for setup.",
+        text="The local Sundarban demo uses TestUSD on Anvil. Check the README for setup.",
         attack=False,
     ),
     FeedItem(

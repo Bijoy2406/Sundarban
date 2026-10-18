@@ -13,6 +13,17 @@ def _isolated_files(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_sepolia(monkeypatch):
+    """NO test may ever reach the public testnet. The developer's .env holds a funded Sepolia key and a working RPC URL
+    (python-dotenv loads it when a module is imported), so a test that switches ACTIVE_NETWORK to sepolia and then
+    runs code that sends would send REAL transactions. Both settings are replaced by unusable values for every test
+    (set, not deleted: load_dotenv would put a deleted variable back). Tests that need a Sepolia-looking setup set their
+    own fake values afterwards."""
+    monkeypatch.setenv("RPC_URL_SEPOLIA", "http://127.0.0.1:9")                 # nothing listens on the discard port
+    monkeypatch.setenv("SEPOLIA_PRIVATE_KEY", "0x" + "00" * 32)                  # not a valid secp256k1 key: cannot sign
+
+
+@pytest.fixture(autouse=True)
 def _clean_firewall(_isolated_files):
     # runs BEFORE each test (each test also has brand-new temporary files, so nothing needs cleaning afterwards)
     from firewall import policy, state, tokens

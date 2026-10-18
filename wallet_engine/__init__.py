@@ -13,7 +13,7 @@ Token binding: the approval token must be tied to what is really signed. Use
 from shared.types import ActionRequest, Decision, SimResult, TxPlan
 
 from . import chain, erc20
-from .execute import ExecutionFailed, ExecutionRefused
+from .execute import ExecutionFailed, ExecutionPending, ExecutionRefused
 from .execute import run as _execute
 from .simulate import run as _simulate
 

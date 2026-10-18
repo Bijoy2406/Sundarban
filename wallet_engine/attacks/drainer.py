@@ -2,7 +2,7 @@
 
 Why this exists: an unlimited token approval lets the approved address pull tokens out of the
 victim's wallet, again and again, without asking. The demo shows a naive agent that signs such an
-approval (because a message told it to) and then loses its test tokens, while Sentinel Wallet's
+approval (because a message told it to) and then loses its test tokens, while Sundarban's
 firewall refuses the approval in the first place (rule APR-01).
 
 The drainer plays the attacker: with an allowance the victim already granted, it calls

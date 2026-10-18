@@ -10,6 +10,7 @@ catch a plan whose transaction does not match what was asked.
 """
 from web3 import Web3
 
+from shared.redact import redact
 from shared.types import SimResult, TxPlan
 
 from . import chain, erc20
@@ -22,8 +23,7 @@ def _fail(reason: str) -> SimResult:
 
 def _revert_reason(exc: Exception) -> str:
     """Make a node error readable: 'execution reverted: TestUSD: insufficient balance' -> 'TestUSD: insufficient balance'."""
-    text = getattr(exc, "message", None) or str(exc)
-    text = text.strip()
+    text = redact(getattr(exc, "message", None) or str(exc))      # never show an RPC URL / API key
     for prefix in ("execution reverted: ", "execution reverted"):
         if text.lower().startswith(prefix):
             text = text[len(prefix):].strip()

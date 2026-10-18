@@ -12,6 +12,7 @@ It refuses (raises ExecutionRefused, NOTHING is sent) unless ALL of these hold:
 The private key comes from .env (chain.key_var()) and is never logged or returned.
 """
 import os
+import threading
 
 from web3 import Web3
 
@@ -25,6 +26,10 @@ MAX_GAS = 500_000          # refuse a plan that asks for an unreasonable gas lim
 MIN_GAS = 21_000
 RECEIPT_TIMEOUT = 120      # seconds to wait for the transaction to be mined
 
+# Reading the next nonce and broadcasting must happen as one step: two requests that read the same
+# nonce would replace each other. (The firewall already serialises decisions; sending was not.)
+_SEND_LOCK = threading.Lock()
+
 
 class ExecutionRefused(RuntimeError):
     """Nothing was sent. The message is safe to show to the user."""
@@ -32,6 +37,17 @@ class ExecutionRefused(RuntimeError):
 
 class ExecutionFailed(RuntimeError):
     """The transaction was sent but failed on-chain (receipt status 0)."""
+
+
+class ExecutionPending(RuntimeError):
+    """The transaction WAS broadcast, but no receipt arrived in time (slow block, node hiccup). It may still
+    be mined, so this is neither a success nor a failure: the caller must show the hash and must not send it
+    again (a second request would pay twice)."""
+
+    def __init__(self, tx_hash: str):
+        self.tx_hash = tx_hash
+        super().__init__(f"Sent but not yet confirmed: transaction {tx_hash} was broadcast and may still be mined. "
+                         f"Check it on the block explorer before trying again; do not send it twice.")
 
 
 def _audit(event: dict) -> None:
@@ -103,22 +119,32 @@ def run(plan: TxPlan, decision: Decision) -> str:
         _refuse(decision, f"Simulation failed: {sim.revert_reason}")
 
     # 5. sign and send
-    tx = {
-        "from": account.address,
-        "to": Web3.to_checksum_address(plan.to),
-        "data": plan.data,
-        "value": 0,
-        "gas": min(int(plan.gas * 1.2), MAX_GAS),
-        "nonce": w3.eth.get_transaction_count(account.address, "pending"),
-        "chainId": w3.eth.chain_id,
-        **_fee_fields(w3),
-    }
-    signed = account.sign_transaction(tx)
-    tx_hash = _hex(w3.eth.send_raw_transaction(signed.raw_transaction))
+    with _SEND_LOCK:
+        tx = {
+            "from": account.address,
+            "to": Web3.to_checksum_address(plan.to),
+            "data": plan.data,
+            "value": 0,
+            "gas": min(int(plan.gas * 1.2), MAX_GAS),
+            "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+            "chainId": w3.eth.chain_id,
+            **_fee_fields(w3),
+        }
+        signed = account.sign_transaction(tx)
+        tx_hash = _hex(signed.hash)          # known before anything is sent, so a send that fails midway can still be traced
+        try:
+            tx_hash = _hex(w3.eth.send_raw_transaction(signed.raw_transaction))
+        except Exception:       # a timeout or a dropped connection: the node may have accepted it, so it is not a failure
+            _audit({"event": "TX_PENDING", "request_id": decision.request_id, "tx_hash": tx_hash})
+            raise ExecutionPending(tx_hash) from None
     _audit({"event": "TX_SENT", "request_id": decision.request_id, "tx_hash": tx_hash,
             "action": binding["action"], "token": binding["token"], "to": binding["to"], "amount": binding["amount"]})
 
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=RECEIPT_TIMEOUT)
+    try:
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=RECEIPT_TIMEOUT)
+    except Exception:       # it was broadcast: not knowing the outcome is not the same as failing
+        _audit({"event": "TX_PENDING", "request_id": decision.request_id, "tx_hash": tx_hash})
+        raise ExecutionPending(tx_hash) from None
     if receipt.status != 1:
         _audit({"event": "TX_FAILED", "request_id": decision.request_id, "tx_hash": tx_hash})
         raise ExecutionFailed(f"Transaction {tx_hash} was mined but failed")

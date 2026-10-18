@@ -11,12 +11,16 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from web3 import Web3
+
 import firewall
 import wallet_engine
-from agent.intents import IntentParseError, parse_intent
+from agent.intents import IntentParseError, check_intent, parse_intent
 from agent.resolve import UserInputError, require_address
 from agent.resolve import resolve_token as _resolve_token
+from shared.redact import redact
 from shared.types import ActionRequest, AgentReply, Decision, TxPlan
+from wallet_engine.binding import token_binding
 
 _PENDING_TTL_SECONDS = 600
 _MAX_PENDING = 1000
@@ -45,6 +49,16 @@ def _prune_pending(now: float) -> None:
         _PENDING.pop(oldest, None)
 
 
+def _full_address_line(tx_plan: TxPlan | None) -> str:
+    """The complete 42-character address the person is about to confirm. Summaries show only 0x1234...abcd, and
+    a look-alike address can copy those 8 characters; the full address is what must be compared."""
+    try:
+        role = "Spender" if token_binding(tx_plan)["action"] in ("approve", "revoke") else "Recipient"
+        return f"{role} (full address): {Web3.to_checksum_address(token_binding(tx_plan)['to'])}. "
+    except Exception:
+        return ""
+
+
 def _reasons(decision: Decision) -> str:
     return " ".join(str(reason) for reason in (decision.reasons or [])) or (
         f"The firewall decision is {decision.decision}."
@@ -62,7 +76,7 @@ def _reply_for_decision(decision: Decision, tx_plan: TxPlan | None = None) -> Ag
     if decision.decision == "ask":
         summary = tx_plan.summary if tx_plan else "the requested transaction"
         return AgentReply(
-            text=f"Confirmation required for {summary}. {reasons} Nothing has been sent. "
+            text=f"Confirmation required for {summary}. {_full_address_line(tx_plan)}{reasons} Nothing has been sent. "
                  f"Confirm request {decision.request_id} through the trusted confirmation UI.",
             decision=decision,
             blocked=False,
@@ -82,6 +96,22 @@ def _reply_for_decision(decision: Decision, tx_plan: TxPlan | None = None) -> Ag
     return AgentReply(text=f"Safety checks passed. {reasons}", decision=decision, blocked=False)
 
 
+PENDING_PREFIX = "Sent but not yet confirmed"
+
+
+def _pending_reply(exc, decision: Decision) -> AgentReply:
+    """The transaction was broadcast but no receipt came in time: show the hash, never say 'failed'."""
+    return AgentReply(text=str(exc), decision=decision, tx_hash=exc.tx_hash, blocked=False)
+
+
+def is_pending(reply: AgentReply) -> bool:
+    """True for a reply that carries a broadcast transaction whose outcome is not known yet."""
+    return bool(reply.tx_hash) and reply.text.startswith(PENDING_PREFIX)
+
+
+_UNTRUSTED_ORIGINS = {"public_feed", "nft_metadata", "tool_output"}
+
+
 def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
     """Parse, plan, simulate, evaluate and execute only if the firewall allows.
 
@@ -89,8 +119,19 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
     no transaction is sent. Call confirm_pending(request_id) only after a human
     explicitly confirms through a trusted UI.
     """
+    return _handle(lambda: parse_intent(text, untrusted=(origin in _UNTRUSTED_ORIGINS)), origin)
+
+
+def handle_intent(intent: dict, origin: str = "user_chat") -> AgentReply:
+    """The same pipeline as handle_message for an intent that was already extracted (the attack replay hands
+    both agents the SAME extracted action). The intent is re-validated with the strict schema, and the
+    firewall still decides from the code-assigned origin, never from anything the intent says."""
+    return _handle(lambda: check_intent(intent), origin)
+
+
+def _handle(get_intent, origin: str) -> AgentReply:
     try:
-        intent = parse_intent(text, untrusted=(origin in {"public_feed", "nft_metadata", "tool_output"}))
+        intent = get_intent()
         req = ActionRequest(
             request_id=str(uuid.uuid4()),
             action=intent["action"],
@@ -104,7 +145,7 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
         try:
             tx_plan = wallet_engine.plan(req)
         except ValueError as exc:
-            raise UserInputError(f"I can't build that transaction: {exc}") from exc
+            raise UserInputError(f"I can't build that transaction: {redact(exc)}") from exc
         sim = wallet_engine.simulate(tx_plan)
         decision = firewall.evaluate(req, tx_plan, sim)
 
@@ -129,9 +170,11 @@ def handle_message(text: str, origin: str = "user_chat") -> AgentReply:
         )
     except (IntentParseError, UserInputError) as exc:
         return AgentReply(text=str(exc), blocked=True)
+    except wallet_engine.ExecutionPending as exc:
+        return _pending_reply(exc, decision)
     except wallet_engine.ExecutionRefused as exc:
         # Written by the wallet engine in plain English and safe to show (it never contains a secret).
-        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
+        return AgentReply(text=f"Nothing was sent. {redact(exc)}", blocked=True)
     except Exception as exc:
         # Never leak provider errors, transaction internals, or secrets into chat.
         return AgentReply(
@@ -171,10 +214,20 @@ def confirm_pending(request_id: str) -> AgentReply:
             tx_hash=tx_hash,
             blocked=False,
         )
+    except wallet_engine.ExecutionPending as exc:
+        return _pending_reply(exc, decision)
     except wallet_engine.ExecutionRefused as exc:
-        return AgentReply(text=f"Nothing was sent. {exc}", blocked=True)
+        return AgentReply(text=f"Nothing was sent. {redact(exc)}", blocked=True)
     except Exception as exc:
         return AgentReply(
             text=f"I couldn't safely complete the confirmation ({type(exc).__name__}). No success is being reported.",
             blocked=True,
         )
+
+
+
+def has_pending_confirmation(request_id: str) -> bool:
+    """Return whether an unexpired agent confirmation exists, without consuming it."""
+    with _PENDING_LOCK:
+        _prune_pending(time.monotonic())
+        return request_id in _PENDING

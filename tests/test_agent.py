@@ -113,3 +113,35 @@ def test_a_refused_execution_shows_the_reason(setup, monkeypatch):
     reply = orchestrator.handle_message("Send 10 TUSD to Alice")
     assert reply.blocked is True and reply.tx_hash is None
     assert "Nothing was sent" in reply.text and "approval token is invalid" in reply.text
+
+
+# ------------------------------------------------------------------ the confirmation text shows the whole address
+
+def _plan_for(function, to, raw):
+    from web3 import Web3
+    from shared.types import TxPlan
+    from wallet_engine import erc20
+    data = Web3().eth.contract(abi=erc20.ERC20_ABI).encode_abi(function, args=[Web3.to_checksum_address(to), raw])
+    return TxPlan(chain_id=31337, from_addr="0x" + "11" * 20, to="0x5FbDB2315678afecb367f032d93F642f64180aa3", value=0,
+                  data=data, gas=60_000, function=f"{function}(address,uint256)", args={}, summary="Send 5 TUSD to 0x0000...cafE")
+
+
+def test_the_ask_text_shows_the_complete_recipient_address():
+    from agent.agent import _reply_for_decision
+    from shared.types import Decision
+    recipient = "0x000000000000000000000000000000000000cafE"
+    plan = _plan_for("transfer", recipient, 5 * 10**18)
+    reply = _reply_for_decision(Decision("r1", "ask", ["ALW-01"], ["New recipient."]), plan)
+    assert "Recipient (full address): " + recipient + "." in reply.text
+    assert "Nothing has been sent" in reply.text
+
+
+def test_the_ask_text_for_an_approval_says_spender():
+    from agent.agent import _full_address_line
+    spender = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    assert _full_address_line(_plan_for("approve", spender, 10**18)) == f"Spender (full address): {spender}. "
+
+
+def test_the_address_line_never_breaks_the_reply():
+    from agent.agent import _full_address_line
+    assert _full_address_line(None) == ""
