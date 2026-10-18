@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as api
+from tests.operator_key import operator_headers
 import wallet_engine
 from shared.types import ActionRequest, AgentReply, Decision, SimResult, TxPlan
 
@@ -55,7 +56,7 @@ def test_confirm_response_has_no_token(monkeypatch):
     monkeypatch.setattr(wallet_engine, "plan", lambda req: PLAN)
     monkeypatch.setattr(api.firewall, "confirm", lambda req, plan: _allow())
     monkeypatch.setattr(wallet_engine, "execute", lambda plan, decision: TX)
-    response = client.post("/api/confirm", json={"request_id": "req-1"})
+    response = client.post("/api/confirm", json={"request_id": "req-1"}, headers=operator_headers())
     assert response.json()["status"] == "executed"
     _assert_no_token(response)
 
@@ -69,6 +70,6 @@ def test_chat_and_agent_confirm_responses_have_no_token(monkeypatch):
 
     monkeypatch.setattr(api, "has_pending_confirmation", lambda request_id: True)
     monkeypatch.setattr(api, "confirm_agent_pending", lambda request_id: reply)
-    confirm = client.post("/api/confirm", json={"request_id": "chat-ask-1"})
+    confirm = client.post("/api/confirm", json={"request_id": "chat-ask-1"}, headers=operator_headers())
     assert confirm.json()["status"] == "executed"
     _assert_no_token(confirm)

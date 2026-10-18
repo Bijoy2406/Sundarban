@@ -1,8 +1,25 @@
 import { useEffect, useState } from "react";
-import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm, sendChat, getSecurity, setKillSwitch, getAudit, getAttackFeed, runAttackReplay } from "./api.js";
+import { getHealth, getWallet, previewPlan, executePlan, confirmPlan, testLlm, sendChat, getSecurity, setKillSwitch, getAudit, getAttackFeed, runAttackReplay, getOperatorKey, setOperatorKey } from "./api.js";
 
 // Anvil's public test account #1, handy as a demo recipient on the LOCAL chain only.
 const DEMO_RECIPIENT = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+// "403: Operator key missing or wrong" / "503: Operator protection is not configured..." -> the sentence without the status.
+const friendly = (err) => (/^(403|503): /.test(err?.message || "") ? err.message.replace(/^\d+: /, "") : null);
+
+function OperatorKeyField() {
+  const [value, setValue] = useState(getOperatorKey());
+  return (
+    <section className="card operator-key">
+      <label>Operator key
+        <input type="password" autoComplete="off" value={value} placeholder="OPERATOR_TOKEN from your .env"
+          onChange={(event) => { setValue(event.target.value); setOperatorKey(event.target.value); }} />
+      </label>
+      <p className="muted small">Needed to <strong>Confirm</strong> an action and to switch the kill switch <strong>OFF</strong>
+        (switching it ON never needs it). Kept only in this browser tab.</p>
+    </section>
+  );
+}
 
 export default function App() {
   const [walletRefresh, setWalletRefresh] = useState(0);
@@ -13,6 +30,7 @@ export default function App() {
         <h1>Sundarban</h1>
         <p className="muted">Test tokens only · never use mainnet or real funds</p>
       </header>
+      <OperatorKeyField />
       <StatusBar />
       <div className="grid">
         <WalletCard refreshKey={walletRefresh} />
@@ -137,7 +155,7 @@ function PlanCard({ onExecuted }) {
       setExecution(outcome);
       if (outcome.status === "executed" || outcome.status === "pending") onExecuted();
     } catch (err) {
-      setError(err.message);
+      setError(friendly(err) ? `${friendly(err)} Nothing was confirmed.` : err.message);
     } finally {
       setBusy(false);
     }
@@ -264,8 +282,8 @@ function ChatCard({ onExecuted }) {
       const result = await confirmPlan(requestId);
       setItems((current) => [...current, { role: "agent", text: result.text || (result.status === "executed" ? "Confirmed. Transaction sent." : "Confirmation processed."), reply: result }]);
       if (result.status === "executed" || result.tx_hash) onExecuted();
-    } catch {
-      setError("Confirmation failed or expired. Nothing should be assumed to have been sent.");
+    } catch (err) {
+      setError(friendly(err) ? `${friendly(err)} Nothing was confirmed.` : "Confirmation failed or expired. Nothing should be assumed to have been sent.");
     } finally {
       setBusy(false);
     }
@@ -322,9 +340,9 @@ function SecurityCard() {
     try {
       const data = await setKillSwitch(next);
       setEnabled(!!data.kill_switch_on);
-    } catch {
+    } catch (err) {
       setEnabled(true);
-      setError("Could not safely update the kill switch. The wallet is treated as frozen.");
+      setError(friendly(err) ? `${friendly(err)} The kill switch stays ON.` : "Could not safely update the kill switch. The wallet is treated as frozen.");
     } finally {
       setBusy(false);
     }

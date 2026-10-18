@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from web3 import Web3
 
 import api.main as api
+from tests.operator_key import operator_headers
 import agent.agent as protected
 import agent.naive_agent as naive
 import wallet_engine
@@ -194,14 +195,14 @@ def test_execute_of_an_ask_needs_a_separate_confirm(env):
     preview = client.post("/api/plan", json=body).json()
     assert preview["decision"]["decision"] == "ask"
     # the id shown by a preview can NOT be confirmed: only Execute opens the question
-    assert client.post("/api/confirm", json={"request_id": preview["request"]["request_id"]}).status_code == 404
+    assert client.post("/api/confirm", json={"request_id": preview["request"]["request_id"]}, headers=operator_headers()).status_code == 404
     asked = client.post("/api/execute", json=body).json()
     assert asked["status"] == "awaiting_confirmation" and asked["tx_hash"] is None
     assert env(CAFE) == before
-    sent = client.post("/api/confirm", json={"request_id": asked["request_id"]}).json()
+    sent = client.post("/api/confirm", json={"request_id": asked["request_id"]}, headers=operator_headers()).json()
     assert sent["status"] == "executed" and sent["tx_hash"]
     assert env(CAFE) == before + 10 * ONE
-    assert client.post("/api/confirm", json={"request_id": asked["request_id"]}).status_code == 404   # single use
+    assert client.post("/api/confirm", json={"request_id": asked["request_id"]}, headers=operator_headers()).status_code == 404   # single use
 
 
 def test_execute_is_denied_for_an_unlimited_approval(env):

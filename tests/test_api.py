@@ -2,6 +2,7 @@
 from fastapi.testclient import TestClient
 
 import api.main as api
+from tests.operator_key import operator_headers
 from shared.types import Decision, SimResult, TxPlan
 
 ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"      # a real address: the API now checks addresses like the agent does
@@ -89,7 +90,7 @@ def test_execute_ask_requires_separate_confirm(monkeypatch):
     assert body["status"] == "awaiting_confirmation"
     assert body["tx_hash"] is None
     assert "execute" not in [c[0] for c in calls]
-    confirmed = client.post("/api/confirm", json={"request_id": body["request_id"]})
+    confirmed = client.post("/api/confirm", json={"request_id": body["request_id"]}, headers=operator_headers())
     assert confirmed.status_code == 200
     assert confirmed.json()["status"] == "executed"
     assert confirmed.json()["tx_hash"] == "0xabc123"
@@ -98,7 +99,7 @@ def test_execute_ask_requires_separate_confirm(monkeypatch):
 
 def test_confirm_rejects_unknown_or_replayed_request(monkeypatch):
     _stub_pipeline(monkeypatch, "ask")
-    r = client.post("/api/confirm", json={"request_id": "not-pending"})
+    r = client.post("/api/confirm", json={"request_id": "not-pending"}, headers=operator_headers())
     assert r.status_code == 404
 
 
@@ -136,7 +137,7 @@ def test_chat_ask_can_only_be_confirmed_with_server_pending_request(monkeypatch)
     assert r.status_code == 200
     assert r.json()["status"] == "awaiting_confirmation"
     assert r.json()["request_id"] == "pending-123"
-    confirmed = client.post("/api/confirm", json={"request_id": "pending-123"})
+    confirmed = client.post("/api/confirm", json={"request_id": "pending-123"}, headers=operator_headers())
     assert confirmed.status_code == 200
     assert confirmed.json()["status"] == "executed"
     assert confirmed.json()["tx_hash"] == "0xabc"
@@ -154,7 +155,7 @@ def test_kill_switch_endpoint_reports_and_updates_state(monkeypatch):
         current["on"] = value
     monkeypatch.setattr(api.state, "set_kill_switch", set_state)
     assert client.get("/api/security").json()["kill_switch_on"] is True
-    r = client.post("/api/kill-switch", json={"enabled": False})
+    r = client.post("/api/kill-switch", json={"enabled": False}, headers=operator_headers())
     assert r.status_code == 200
     assert r.json()["kill_switch_on"] is False
     assert client.post("/api/kill-switch", json={"enabled": True}).json()["kill_switch_on"] is True

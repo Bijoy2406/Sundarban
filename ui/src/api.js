@@ -1,8 +1,19 @@
 // All calls to the FastAPI backend live here. Paths start with /api (proxied by Vite).
+// The operator key (Confirm, kill switch OFF) lives only in this tab's sessionStorage, never in a file or a URL.
+const OPERATOR_STORAGE_KEY = "sundarbanOperatorKey";
+export function getOperatorKey() {
+  try { return sessionStorage.getItem(OPERATOR_STORAGE_KEY) || ""; } catch { return ""; }
+}
+export function setOperatorKey(value) {
+  try { value ? sessionStorage.setItem(OPERATOR_STORAGE_KEY, value) : sessionStorage.removeItem(OPERATOR_STORAGE_KEY); } catch { /* storage blocked: the key just is not remembered */ }
+}
+const operatorHeaders = () => { const key = getOperatorKey(); return key ? { "X-Operator-Token": key } : {}; };
+
 async function request(path, options = {}) {
+  const { headers = {}, ...rest } = options;
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
+    ...rest,
+    headers: { "Content-Type": "application/json", ...headers },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -17,7 +28,7 @@ export const getWallet = () => request("/api/wallet");
 export const previewPlan = (form) => request("/api/plan", { method: "POST", body: JSON.stringify(form) });
 export const executePlan = (form) => request("/api/execute", { method: "POST", body: JSON.stringify(form) });
 export const confirmPlan = (request_id) => request("/api/confirm", {
-  method: "POST", body: JSON.stringify({ request_id }),
+  method: "POST", headers: operatorHeaders(), body: JSON.stringify({ request_id }),
 });
 export const testLlm = () => request("/api/llm/test", { method: "POST" });
 
@@ -26,7 +37,7 @@ export const sendChat = (message) => request("/api/chat", {
 });
 export const getSecurity = () => request("/api/security");
 export const setKillSwitch = (enabled) => request("/api/kill-switch", {
-  method: "POST", body: JSON.stringify({ enabled }),
+  method: "POST", headers: enabled ? {} : operatorHeaders(), body: JSON.stringify({ enabled }),   // freezing never needs the key
 });
 export const getAudit = (limit = 50) => request(`/api/audit?limit=${limit}`);
 

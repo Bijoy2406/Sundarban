@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import api.main as api
+from tests.operator_key import operator_headers
 import wallet_engine
 from shared.types import Decision, SimResult, TxPlan
 
@@ -46,7 +47,7 @@ def test_a_name_instead_of_an_address_gets_the_friendly_message(path):
 
 def test_a_refused_execute_leaves_nothing_to_confirm():
     client.post("/api/execute", json={"action": "transfer", "to": BAD_CHECKSUM, "amount": "10"})
-    assert client.post("/api/confirm", json={"request_id": "anything"}).status_code == 404
+    assert client.post("/api/confirm", json={"request_id": "anything"}, headers=operator_headers()).status_code == 404
 
 
 @pytest.mark.parametrize("address", [ALICE, ALICE.lower(), "0x" + ALICE[2:].upper()])

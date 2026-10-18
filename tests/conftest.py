@@ -24,6 +24,13 @@ def _no_real_sepolia(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _operator_token(monkeypatch):
+    """The API's operator key (Confirm, kill switch OFF). Tests send it with tests.operator_key.operator_headers()."""
+    from tests.operator_key import OPERATOR_TOKEN
+    monkeypatch.setenv("OPERATOR_TOKEN", OPERATOR_TOKEN)
+
+
+@pytest.fixture(autouse=True)
 def _clean_firewall(_isolated_files):
     # runs BEFORE each test (each test also has brand-new temporary files, so nothing needs cleaning afterwards)
     from firewall import policy, state, tokens

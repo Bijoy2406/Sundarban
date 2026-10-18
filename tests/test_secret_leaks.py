@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import agent.agent as protected
 import api.main as api
+from tests.operator_key import operator_headers
 import wallet_engine
 from shared.types import ActionRequest
 
@@ -48,7 +49,7 @@ def test_http_errors_do_not_echo_the_rpc_url(path):
 
 def test_confirm_errors_do_not_echo_the_rpc_url():
     api._remember_ask(ActionRequest("leak-confirm", "transfer", TOKEN, ALICE, "10", False, "user_chat"))
-    response = client.post("/api/confirm", json={"request_id": "leak-confirm"})
+    response = client.post("/api/confirm", json={"request_id": "leak-confirm"}, headers=operator_headers())
     assert response.status_code == 400
     assert FAKE_KEY not in response.text
 

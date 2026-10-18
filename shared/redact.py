@@ -6,7 +6,7 @@ user must go through redact().
 
   * every URL is replaced by "[url hidden]"
   * the value of every secret-looking setting in the environment (RPC_URL_*, *_PRIVATE_KEY, *_API_KEY,
-    *_SECRET) is replaced by "[hidden]", wherever it appears, even outside a URL
+    *_SECRET, OPERATOR_TOKEN) is replaced by "[hidden]", wherever it appears, even outside a URL
   * the result is one short line (no line breaks, at most `limit` characters)
 
 Transaction hashes and addresses are NOT touched: they are public and the demo needs them.
@@ -15,7 +15,7 @@ import os
 import re
 
 _URL = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^\s'\"<>)\]]+")
-_SECRET_NAME = re.compile(r"^(RPC_URL.*|.*_PRIVATE_KEY|.*_API_KEY|.*_SECRET)$")
+_SECRET_NAME = re.compile(r"^(RPC_URL.*|.*_PRIVATE_KEY|.*_API_KEY|.*_SECRET|OPERATOR_TOKEN)$")
 MIN_SECRET_LENGTH = 8          # shorter values would hide ordinary words
 
 

@@ -13,13 +13,15 @@ Endpoints that matter for safety:
                      on the server and must be confirmed separately.
   POST /api/confirm  The human confirmation step for a server-remembered "ask" (firewall.confirm()).
 """
+import hmac
+import os
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -162,6 +164,22 @@ class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
 
 
+MIN_OPERATOR_TOKEN = 16
+
+
+def require_operator(x_operator_token: str | None = Header(default=None)) -> None:
+    """Separation of duties: whoever confirms an action or switches the kill switch OFF holds the operator key.
+
+    The key is OPERATOR_TOKEN from .env, sent in the X-Operator-Token header. Fail closed: with no usable key
+    configured the answer is 503, never 'allowed'. A missing and a wrong key get the same answer, and the key itself
+    (or what was sent) is never put in a response, an error or a log line."""
+    expected = os.getenv("OPERATOR_TOKEN", "")
+    if len(expected) < MIN_OPERATOR_TOKEN:
+        raise HTTPException(status_code=503, detail="Operator protection is not configured: set OPERATOR_TOKEN in .env")
+    if not hmac.compare_digest((x_operator_token or "").encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=403, detail="Operator key missing or wrong")
+
+
 class KillSwitchRequest(BaseModel):
     enabled: bool
 
@@ -200,7 +218,9 @@ def security_status():
 
 
 @app.post("/api/kill-switch")
-def set_kill_switch(body: KillSwitchRequest):
+def set_kill_switch(body: KillSwitchRequest, x_operator_token: str | None = Header(default=None)):
+    if not body.enabled:                  # freezing (ON) stays open to everyone; unfreezing needs the operator key
+        require_operator(x_operator_token)
     try:
         state.set_kill_switch(body.enabled)
         return {"kill_switch_on": state.kill_switch_on()}
@@ -269,7 +289,7 @@ def execute(body: PlanRequest):
     return _execute_result(req, tx_plan, decision)
 
 
-@app.post("/api/confirm")
+@app.post("/api/confirm", dependencies=[Depends(require_operator)])
 def confirm(body: ConfirmRequest):
     """Confirm only a server-remembered ask. Browser cannot supply a plan or decision."""
     req = _take_pending(body.request_id)
