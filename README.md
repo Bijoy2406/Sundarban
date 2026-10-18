@@ -291,9 +291,29 @@ A failure in `tests/test_contract.py` means someone changed the shared data type
 | ✗ Chain / ✗ TestUSD deployed | start anvil, then run the deploy script again, then check `TOKEN_ADDRESS` in `.env` |
 | Red-team `--agents` says "not in its fresh state" | an attack was run by hand: restart Anvil and redeploy the token |
 | Confirm or kill-switch OFF answers "Operator key missing or wrong" (403) or "Operator protection is not configured" (503) | set `OPERATOR_TOKEN` in `.env` (16+ characters), restart uvicorn, paste the same value into the UI's Operator key field |
+| Every send is refused after a crash or a power cut | the used-token file `logs/used_tokens.jsonl` is damaged (a half-written line): the firewall refuses every token rather than risk accepting a spent one. Stop the backend, delete that file, restart. See "Reset the demo state" below |
+| A 6th quick action asks for confirmation (VEL-01) although you just restarted | the velocity window is kept in `logs/velocity.jsonl` and survives a restart: wait 10 minutes or reset the demo state |
 | Wallet card error after restarting anvil | anvil starts empty: run the deploy script again |
 | Port already in use | stop the old process, or change the port (`--port 8001`; also update `ui/vite.config.js`) |
 | LLM test fails | check the 3 `LLM_*` values in `.env`, then restart uvicorn |
+
+### Reset the demo state
+
+The firewall keeps four small files in `logs/` (git-ignored) so that a restart cannot hand out a fresh budget:
+`spend_ledger.jsonl` (the 24-hour daily cap), `kill_switch.flag` (the emergency stop), `velocity.jsonl` (the
+"5 actions in 10 minutes" window) and `used_tokens.jsonl` (approval tokens that were already spent), plus the
+audit log `audit.jsonl`. They are exactly what you want in real use and exactly what gets in the way of a clean
+demo: after a few manual tries the daily cap is partly used and the next transfers ask for confirmation.
+
+Before recording a demo, or to recover from a damaged file, stop the backend and delete them:
+
+```bash
+rm -f logs/spend_ledger.jsonl logs/kill_switch.flag logs/velocity.jsonl logs/used_tokens.jsonl logs/audit.jsonl logs/audit.jsonl.lock
+```
+
+Then restart anvil and redeploy the token (the replay rolls the local chain back by itself, but a hand-made attack
+does not) and start the backend again. Deleting these files is a deliberate reset of the safety limits, which is
+why it is a manual step on a test machine and never done by the application. The test suite never touches `logs/`.
 
 ## 8. The audit log
 
