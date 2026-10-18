@@ -37,11 +37,23 @@ def transfer_intent(to=ATTACKER, amount="10"):
 @pytest.fixture
 def world(monkeypatch):
     """A fake local chain, fake agents and a fake drainer; records what each side was given."""
-    calls = {"protected": [], "naive": [], "drain": 0}
+    calls = {"protected": [], "naive": [], "drain": 0, "chain": []}
     state = {"balance": Decimal("1000"), "allowance": False}
+    saved = {}
+
+    def make_request(method, params):
+        """A fake Anvil: evm_snapshot remembers the state, evm_revert really restores it."""
+        calls["chain"].append(method)
+        if method == "evm_snapshot":
+            saved["0x1"] = dict(state)
+            return {"result": "0x1"}
+        if method == "evm_revert":
+            state.update(saved[params[0]])
+            return {"result": True}
+        raise AssertionError(method)
     monkeypatch.setattr(replay.chain, "network", lambda: "local")
     monkeypatch.setattr(replay.chain, "get_web3", lambda: SimpleNamespace(
-        is_connected=lambda: True, eth=SimpleNamespace(chain_id=31337)))
+        is_connected=lambda: True, eth=SimpleNamespace(chain_id=31337), provider=SimpleNamespace(make_request=make_request)))
     monkeypatch.setattr(replay.drainer, "attacker_address", lambda: ATTACKER)
     monkeypatch.setattr(replay, "_victim_balance", lambda: state["balance"])
     monkeypatch.setattr(replay, "_attacker_has_allowance", lambda attacker: state["allowance"])
@@ -70,6 +82,69 @@ def world(monkeypatch):
     monkeypatch.setattr(replay.naive_agent, "handle_intent", naive)
     monkeypatch.setattr(replay.drainer, "drain", drain)
     return SimpleNamespace(calls=calls, state=state)
+
+
+# ------------------------------------------------------------------ the chain is rolled back after every replay
+
+def test_the_chain_is_snapshotted_first_and_reverted_last(world):
+    body = replay.run(get_feed_item("x-attack-direct"))
+    assert world.calls["chain"] == ["evm_snapshot", "evm_revert"]
+    assert body["chain_reset"] is True
+    assert world.state["balance"] == Decimal("1000") and world.state["allowance"] is False     # the replay left nothing behind
+
+
+def test_the_result_is_built_before_the_revert_so_it_still_shows_the_loss(world):
+    body = replay.run(get_feed_item("x-attack-direct"))
+    assert body["naive"]["status"] == "drained" and Decimal(body["naive"]["balance_drop"]) == Decimal("1000")
+    assert body["naive"]["balance_before"] == "1000" and body["naive"]["balance_after"] == "0"
+
+
+def test_two_replays_in_a_row_give_the_same_naive_result(world):
+    first = replay.run(get_feed_item("x-attack-direct"))
+    second = replay.run(get_feed_item("x-attack-direct"))
+    assert first["naive"] == second["naive"] and first["naive"]["status"] == "drained"
+
+
+@pytest.mark.parametrize("side", ["protected", "naive"])
+def test_the_revert_runs_even_when_an_agent_raises(world, monkeypatch, side):
+    def boom(intent, origin):
+        raise RuntimeError("agent crashed")
+    monkeypatch.setattr(getattr(replay, "protected" if side == "protected" else "naive_agent"), "handle_intent", boom)
+    with pytest.raises(RuntimeError, match="agent crashed"):
+        replay.run(get_feed_item("x-attack-direct"))
+    assert world.calls["chain"] == ["evm_snapshot", "evm_revert"]
+
+
+def test_the_revert_runs_when_the_drainer_raises(world, monkeypatch):
+    def boom():
+        raise RuntimeError("drain crashed")
+    monkeypatch.setattr(replay.drainer, "drain", boom)
+    with pytest.raises(RuntimeError):
+        replay.run(get_feed_item("x-attack-direct"))
+    assert world.calls["chain"] == ["evm_snapshot", "evm_revert"]
+
+
+def test_a_failed_revert_is_reported_not_hidden(world, monkeypatch):
+    original = replay.chain.get_web3()
+
+    def failing(method, params):
+        world.calls["chain"].append(method)
+        return {"result": "0x1"} if method == "evm_snapshot" else {"result": False}
+    monkeypatch.setattr(replay.chain, "get_web3", lambda: SimpleNamespace(
+        is_connected=lambda: True, eth=SimpleNamespace(chain_id=31337), provider=SimpleNamespace(make_request=failing)))
+    assert replay.run(get_feed_item("x-attack-direct"))["chain_reset"] is False
+
+
+def test_nothing_is_snapshotted_or_reverted_on_a_refused_replay(world, monkeypatch):
+    monkeypatch.setattr(replay.chain, "network", lambda: "sepolia")
+    assert client.post("/api/attack-replay", json={"attack_id": "x-attack-direct"}).status_code == 403
+    monkeypatch.setattr(replay.chain, "network", lambda: "local")
+    assert client.post("/api/attack-replay", json={"attack_id": "x-benign-1"}).status_code == 400            # not an attack
+    monkeypatch.setattr(replay.chain, "get_web3", lambda: SimpleNamespace(
+        is_connected=lambda: True, eth=SimpleNamespace(chain_id=11155111),
+        provider=SimpleNamespace(make_request=lambda m, p: world.calls["chain"].append(m))))
+    assert client.post("/api/attack-replay", json={"attack_id": "x-attack-direct"}).status_code == 403
+    assert world.calls["chain"] == []
 
 
 # ------------------------------------------------------------------ the feed endpoint
@@ -219,6 +294,37 @@ def test_an_unexpected_error_does_not_leak_details(world, monkeypatch):
 
 # ------------------------------------------------------------------ live: the real agents on a real local chain
 
+def test_live_two_replays_in_a_row_are_identical_and_leave_the_chain_untouched(monkeypatch):
+    from wallet_engine import chain
+    import wallet_engine
+    try:
+        info = chain.status()
+    except Exception:
+        pytest.skip("chain not configured")
+    if not (info.get("connected") and info.get("chain_id") == 31337 and info.get("token_deployed") and chain.network() == "local"):
+        pytest.skip("local anvil with deployed TestUSD not available")
+    if not os.getenv("ATTACKER_PRIVATE_KEY"):
+        pytest.skip("ATTACKER_PRIVATE_KEY not set")
+
+    def no_model(text, **kwargs):
+        raise IntentParseError()
+    monkeypatch.setattr(replay, "parse_intent", no_model)
+    w3 = chain.get_web3()
+    outer = w3.provider.make_request("evm_snapshot", [])["result"]       # safety net for the test only
+    try:
+        start = Decimal(wallet_engine.balances()["TUSD"])
+        first = replay.run(get_feed_item("x-attack-direct"))
+        middle = Decimal(wallet_engine.balances()["TUSD"])
+        second = replay.run(get_feed_item("x-attack-direct"))
+        end = Decimal(wallet_engine.balances()["TUSD"])
+    finally:
+        w3.provider.make_request("evm_revert", [outer])
+    assert first["naive"]["status"] == second["naive"]["status"] == "drained"
+    assert Decimal(first["naive"]["balance_before"]) == Decimal(second["naive"]["balance_before"]) == start
+    assert first["naive"]["balance_drop"] == second["naive"]["balance_drop"]
+    assert middle == start == end and first["chain_reset"] is second["chain_reset"] is True
+    assert first["protected"]["decision"]["rule_ids"] == second["protected"]["decision"]["rule_ids"]
+
 def test_live_replay_on_anvil_the_naive_agent_is_drained_and_the_firewall_names_its_rules(monkeypatch):
     from wallet_engine import chain
     try:
@@ -243,7 +349,9 @@ def test_live_replay_on_anvil_the_naive_agent_is_drained_and_the_firewall_names_
     finally:
         w3.provider.make_request("evm_revert", [snapshot])
     assert body["intent"]["source"] == "scripted"
-    assert body["naive"]["status"] == "drained" and Decimal(body["naive"]["balance_drop"]) == before and after == 0
+    assert body["naive"]["status"] == "drained" and Decimal(body["naive"]["balance_drop"]) == before
+    assert Decimal(body["naive"]["balance_after"]) == 0           # the result shows the loss ...
+    assert after == before and body["chain_reset"] is True        # ... and the chain was rolled back afterwards
     assert body["protected"]["status"] == "blocked"
     rules = body["protected"]["decision"]["rule_ids"]
     assert "PRV-01" in rules and "APR-01" in rules               # the firewall, not the model, stopped it

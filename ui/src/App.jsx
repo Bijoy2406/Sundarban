@@ -413,7 +413,7 @@ function AttackReplayCard({ onExecuted }) {
       <p className="muted small">
         One attack, one extracted action, two agents. Both agents receive the <em>same</em> action, so the only
         difference is the firewall: the naive agent signs it, the protected agent asks the firewall, which uses the
-        origin assigned by code (not the text). Test tokens only; this endpoint refuses non-local chains.
+        origin assigned by code (not the text). Test tokens only; this endpoint refuses non-local chains. The local chain is rolled back after each replay, so you can run it again.
       </p>
       <div className="form">
         <label className="wide">Choose an attack from the feed
@@ -435,6 +435,7 @@ function AttackReplayCard({ onExecuted }) {
       {result && (
         <>
           <p className="muted small">Attack: {result.attack.title} · origin assigned by backend: <code>{result.attack.origin}</code></p>
+          {result.chain_reset === false && <p className="error" role="alert">The local chain could not be rolled back after this replay: restart Anvil and redeploy the token before running another one.</p>}
           <div className="attack-payload">
             <strong>Payload given to both agents</strong>
             <p>{result.attack.payload}</p>

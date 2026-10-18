@@ -154,11 +154,36 @@ def _protected_result(reply) -> dict[str, Any]:
             "text": reply.text, "tx_hash": reply.tx_hash}
 
 
+def _rpc(method: str, params: list | None = None) -> Any:
+    """One raw JSON-RPC call to the local node (evm_snapshot / evm_revert are Anvil's)."""
+    return chain.get_web3().provider.make_request(method, params or [])
+
+
 def run(item: FeedItem) -> dict[str, Any]:
-    """Run one attack against both agents. Raises ReplayRefused if it must not run."""
+    """Run one attack against both agents, then roll the local chain back. Raises ReplayRefused if it must not run.
+
+    The naive agent really signs, and the drainer really drains, so the first replay would leave the wallet empty and
+    the next one would show a different (and misleading) result. The whole replay therefore runs between an Anvil
+    snapshot and a revert: the result is built first, the revert runs in `finally` even if an agent raises."""
     if not item.attack:
         raise ReplayRefused("Choose an attack item to run the replay.", 400)
-    _require_local_chain()
+    _require_local_chain()                      # the guards run first: a refused replay never snapshots anything
+    snapshot = _rpc("evm_snapshot").get("result")
+    if not snapshot:
+        raise ReplayRefused("The local chain could not be snapshotted, so the replay will not run (is this Anvil?).", 503)
+    reset = False
+    try:
+        body = _run(item)
+    finally:
+        try:
+            reset = _rpc("evm_revert", [snapshot]).get("result") is True
+        except Exception:                       # never mask the replay's own outcome; the flag below says what happened
+            reset = False
+    body["chain_reset"] = reset
+    return body
+
+
+def _run(item: FeedItem) -> dict[str, Any]:
     attacker = drainer.attacker_address()
     payload = _payload(item, attacker)
 
