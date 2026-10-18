@@ -134,6 +134,64 @@ def test_denied_rows_explain_why_velocity_is_listed(tmp_path, monkeypatch):
     assert evidence_run.VEL_NOTE in out.read_text()
 
 
+@pytest.mark.parametrize("extra", [["--yes"], []])
+def test_the_rehearsal_allowlist_is_refused_off_the_local_chain(monkeypatch, capsys, tmp_path, extra):
+    """--temp-allowlist swaps the allowlist for a rehearsal one: on Sepolia that would make the submitted evidence
+    come from a different policy than the checked-in one."""
+    monkeypatch.setenv("ACTIVE_NETWORK", "sepolia")
+    from wallet_engine import chain
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("the script reached for the network: the flag was not refused first")
+    monkeypatch.setattr(chain, "get_web3", forbidden)      # second safety net (conftest already blanks the Sepolia RPC and key)
+    assert evidence_run.main(["--temp-allowlist", *extra, "--csv", str(tmp_path / "never_written.csv")]) == 2
+    out = capsys.readouterr().out
+    assert "REFUSED" in out and "--temp-allowlist" in out
+    assert "PREFLIGHT" not in out                      # refused before anything touched the network
+    assert not (tmp_path / "never_written.csv").exists()
+
+
+class _AskThenAnswer:
+    """A firewall that asks, and then answers the confirmation with a fixed decision."""
+
+    def __init__(self, confirmed):
+        self.confirmed = confirmed
+
+    def evaluate(self, req, plan=None, sim=None):
+        return Decision(req.request_id, "ask", ["LIM-02"], ["above the auto limit"], None)
+
+    def confirm(self, req, plan=None):
+        return Decision(req.request_id, self.confirmed, ["CNF-01"] if self.confirmed == "deny" else ["ALLOW"],
+                        ["question expired"] if self.confirmed == "deny" else ["ok"], "tok" if self.confirmed == "allow" else None)
+
+
+def _ask_row(monkeypatch, tmp_path, confirmed, scripted=False):
+    import wallet_engine
+    from shared.types import SimResult, TxPlan
+    monkeypatch.setattr(wallet_engine, "plan", lambda req: TxPlan(
+        31337, "0x" + "1" * 40, "0x" + "2" * 40, 0, "0x", 60000, "transfer(address,uint256)", {}, "x"))
+    monkeypatch.setattr(wallet_engine, "simulate", lambda plan: SimResult(True, None, "1", None))
+    monkeypatch.setattr(wallet_engine, "execute", lambda plan, decision: "0x" + "ab" * 32)
+    confirm = evidence_run.make_confirm(auto=scripted) if scripted else (lambda *a: True)
+    ask = evidence_run.SCENARIOS[4]                      # "transfer 200 to B (needs a human confirm)"
+    return evidence_run.run([ask], {"A": ALICE, "B": BOB}, _AskThenAnswer(confirmed), "0x" + "3" * 40, "local",
+                            tmp_path / "tx.csv", confirm=confirm)[0]
+
+
+def test_no_human_confirmation_is_recorded_when_the_firewall_refused_it(monkeypatch, tmp_path):
+    row = _ask_row(monkeypatch, tmp_path, "deny")
+    assert row["status"] == "denied"
+    assert "human confirmation" not in row["note"]
+    assert "question expired" in row["note"]               # the refusal itself is still on record
+
+
+def test_a_confirmed_and_allowed_ask_still_records_who_confirmed(monkeypatch, tmp_path):
+    row = _ask_row(monkeypatch, tmp_path, "allow")
+    assert row["status"] == "sent" and "human confirmation: typed at the prompt" in row["note"]
+    scripted = _ask_row(monkeypatch, tmp_path, "allow", scripted=True)
+    assert "human confirmation: scripted (--auto-confirm)" in scripted["note"]
+
+
 # ============================ live (local anvil) ============================
 
 @pytest.fixture

@@ -129,7 +129,8 @@ def run(scenarios, recipients, fw, token_address, network, csv_path, confirm, pa
             if decision.decision == "ask":
                 if confirm(req, plan, decision):
                     decision = fw.confirm(req, plan)
-                    row["note"] += " | human confirmation: " + ("scripted (--auto-confirm)" if getattr(confirm, "scripted", False) else "typed at the prompt")
+                    if decision.decision == "allow":          # only an accepted confirmation counts as one
+                        row["note"] += " | human confirmation: " + ("scripted (--auto-confirm)" if getattr(confirm, "scripted", False) else "typed at the prompt")
                 else:
                     row["status"] = "declined"
             if row["status"] == "declined":
@@ -214,6 +215,10 @@ def main(argv=None, fw=None) -> int:
     network = os.getenv("ACTIVE_NETWORK", "local")
     if network not in CHAIN_IDS:
         print(f"REFUSED: ACTIVE_NETWORK must be 'local' or 'sepolia' (got {network!r})")
+        return 2
+    if args.temp_allowlist and network != "local":
+        print(f"REFUSED: --temp-allowlist is for rehearsals on the local chain only (ACTIVE_NETWORK is {network!r}). "
+              "Evidence on a public network must come from the checked-in firewall/rules.yaml.")
         return 2
     if network != "local" and not args.yes:
         print(f"This will send REAL transactions on {network} (test tokens, gas paid in test ETH).")
