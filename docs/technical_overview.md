@@ -1,6 +1,6 @@
 # Sundarban: Technical Documentation
 
-**Competition:** FinTechathon 2026, International Track, Topic F (Agent Wallet)
+**Team:** Sundarban · **Competition:** FinTechathon 2026, International Track, Topic F (Agent Wallet)
 **Repository:** https://github.com/Bijoy2406/Sundarban · **License:** MIT
 
 > **Safety boundary:** test tokens only. Local Anvil (chain id 31337) and Ethereum Sepolia (11155111). Never mainnet,
